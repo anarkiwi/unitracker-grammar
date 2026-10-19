@@ -3,9 +3,18 @@
 import pytest
 from lark import Token, Tree
 
-from unitracker_grammar import GRAMMAR, CanonicalError, parse, parser
+from unitracker_grammar import (
+    GRAMMAR,
+    NTSC_HZ,
+    PAL_HZ,
+    CanonicalError,
+    frequency,
+    parse,
+    parser,
+    table,
+)
 
-HEADER = "unitracker: 1.20\nplayroutine: {ref: goattracker2}\nmeta: {title: T, author: A}\n"
+HEADER = "unitracker: 1.20\nmeta: {title: T, author: A}\n"
 INS = "      ins:\n        i1: "
 
 
@@ -52,8 +61,8 @@ CASES = [
     INS + "{pw: 95*φ\n            + 296, restart: [{hold: 3, ctrl: ^8, gate: 0}, {},\n"
     "            end]}\n",
     INS + "{ad: 1}\n      phrase:\n"
-    "        p2: [C4.i1!run:c1!ad:1!sr:2!ctrl:65!resfilt:15/1!mode:16!vol:15!cut:x1!tempo:6/7!vtempo:8"
-    "!freq:x1!legato!pw!filter*2, -!pw:none!filter:none,\n"
+    "        p2: [C4.i1!run:c1!ad:1!sr:2!ctrl:65!resfilt:15/1!mode:16!vol:15!cut:x1!tempo:6/7"
+    "!vtempo:8!freq:x1!legato!pw!filter*2, -!pw:none!filter:none,\n"
     "          off!cut:80, on!freq:none, B-1!freq:-139, C10!pw:256, -!pw:x1!cut:512]\n",
 ]
 
@@ -98,9 +107,10 @@ def test_a_program_is_its_rows_in_order():
 
 
 def test_the_header_forms_parse():
-    """Block playroutine with constants and tables, clock, voices, a swing tempo, the init row."""
+    """Clock, voices, a swing tempo, the document's tables and the init row."""
     head = (
         "clock: {cycles_per_tick: 17095, clock_hz: 1022727}\nvoices: 3\ntempo: [6, 7]\n"
+        "tables:\n  W: [1, 2, 3]\n  Por: [922, 967,\n    3178]\n"
         "init: [E2!pw:256!cut:x1!freq:-139!legato, -!pw:2048, -]\n"
     )
     tree = parse(doc("      ins:\n        i1: {ad: 1}\n", head, ending="  - end"))
@@ -112,22 +122,13 @@ def test_the_header_forms_parse():
         [],
     ]
     assert [str(t) for t in first(tree, "tempo").children] == ["6", "7"]
-    block = (
-        "unitracker: 1.20\nplayroutine:\n  ref: defmon\n  constants: {floor: 2, dbl: 0}\n"
-        "  tables:\n    note_lo: {18: 922, 22: 967,\n      42: 3178}\n    por_lo: [1, 2, 3]\n"
-        "meta: {title: T}\n"
-    )
-    tree = parse(
-        doc("      ins:\n        i1: {ad: 1}\n", play="[p1, p1+5, ~]").replace(HEADER, block)
-    )
-    assert [str(t) for t in first(tree, "intmap").children] == [
-        "18",
-        "922",
-        "22",
-        "967",
-        "42",
-        "3178",
+    tables = first(tree, "tables")
+    assert [str(t) for t in tables.children if isinstance(t, Token)] == ["W", "Por"]
+    assert [[str(t) for t in l.children] for l in tables.find_data("intlist")] == [
+        ["1", "2", "3"],
+        ["922", "967", "3178"],
     ]
+    tree = parse(doc("      ins:\n        i1: {ad: 1}\n", play="[p1, p1+5, ~]"))
     assert [[str(t) for t in p.children] for p in first(tree, "plays").children] == [
         ["p1"],
         ["p1", "+5"],
@@ -138,20 +139,26 @@ def test_the_header_forms_parse():
 @pytest.mark.parametrize(
     "text, where",
     [
-        (doc(INS + "{sr: 2, ad: 1}\n"), "line 7"),
-        (doc(INS + "{ctrl: [{note: C4, ctrl: 65}, end]}\n"), "line 7"),
-        (doc("      ins:\n       i1: {ad: 1}\n"), "line 7"),
-        (doc("      phrase:\n        p2: [C4!legato!freq:x1]\n"), "line 7"),
-        (doc("      phrase:\n        p2: [C4 .i1]\n"), "line 7"),
-        (doc(INS + "{pw: v+1}\n"), "line 7"),
-        (doc("      vinit:\n        0: {pw: 256}\n"), "line 6"),
-        (doc(INS + "{ad: 1}\n", ending="  - loop: 0"), "line 11"),
-        (HEADER.replace("meta", "title") + "song:\n  - end\n", "line 3"),
+        (doc(INS + "{sr: 2, ad: 1}\n"), "line 6"),
+        (doc(INS + "{ctrl: [{note: C4, ctrl: 65}, end]}\n"), "line 6"),
+        (doc("      ins:\n       i1: {ad: 1}\n"), "line 6"),
+        (doc("      phrase:\n        p2: [C4!legato!freq:x1]\n"), "line 6"),
+        (doc("      phrase:\n        p2: [C4 .i1]\n"), "line 6"),
+        (doc(INS + "{pw: v+1}\n"), "line 6"),
+        (doc("      vinit:\n        0: {pw: 256}\n"), "line 5"),
+        (doc(INS + "{ad: 1}\n", ending="  - loop: 0"), "line 10"),
+        (HEADER.replace("meta", "title") + "song:\n  - end\n", "line 2"),
+        (
+            HEADER.replace("meta", "playroutine: {ref: goattracker2}\nmeta") + "song:\n  - end\n",
+            "line 2",
+        ),
+        (doc(INS + "{ad: 1}\n", "tables:\n  ftab: [1, 2]\n"), "line 4"),
     ],
 )
 def test_other_spellings_are_refused(text, where):
     """Key order, indentation, command order, spaces in an event, operator spacing, fixed records,
-    the song's ending and the header keys each have one form."""
+    the song's ending, the header keys, a player's name and a lower-case table each have one
+    form or none."""
     with pytest.raises(CanonicalError, match=rf"{where} column \d+: "):
         parse(text)
 
@@ -160,3 +167,18 @@ def test_the_parser_is_built_once_from_the_packaged_grammar():
     """The grammar ships as package data and the parser is cached."""
     assert GRAMMAR.read_text(encoding="utf-8").startswith("// The canonical unitracker document")
     assert parser() is parser()
+
+
+def test_the_note_table_is_equal_temperament_from_a4_in_words_that_fit():
+    """A4 at PAL is 7493; an octave doubles the word within rounding; NTSC words are lower; the
+    table stops where a word overflows and F(k) is 0 there and below C0."""
+    assert frequency(57) == 7493
+    assert frequency(57, NTSC_HZ) == 7218
+    pal = table(PAL_HZ)
+    assert pal[24] == frequency(24) and all(
+        abs(pal[k + 12] - 2 * pal[k]) <= 1 for k in range(len(pal) - 12)
+    )
+    ntsc = table(NTSC_HZ)
+    assert all(a < b for a, b in zip(ntsc, pal)) and len(ntsc) > len(pal)
+    assert pal[-1] < 1 << 16 and frequency(len(pal)) == 0 and frequency(-1) == 0
+    assert ntsc[:3] == [268, 284, 301]
