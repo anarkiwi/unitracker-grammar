@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "unitracker-grammar"
-version = "0.1.0"
-description = "The canonical unitracker document as a Lark grammar"
+version = "0.2.0"
+description = "The canonical unitracker document as a Lark grammar, with its note table"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }

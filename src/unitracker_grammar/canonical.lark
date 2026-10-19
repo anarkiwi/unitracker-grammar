@@ -1,22 +1,14 @@
 // The canonical unitracker document: format 1.20 with the init row (anarkiwi/unitracker#165),
 // value-or-expression command arguments (anarkiwi/unitracker#172) and no fixed record types
-// (anarkiwi/unitracker#126, anarkiwi/unitracker#165). Whitespace is exact, but a space inside a
-// flow collection or a block scalar may be a line wrap (a newline and the continuation
-// indentation); a flow expression that contains a comma is written in single quotes. Every block
-// line ends with its newline. An embedded playroutine follows unitracker's
-// docs/playroutines/schema.md and is outside this grammar.
+// (anarkiwi/unitracker#126, anarkiwi/unitracker#165). A document names no player: everything it
+// plays is in it, and its only constants are the note table F(k) (notes.py) at its clock.
+// Whitespace is exact, but a space inside a flow collection or a block scalar may be a line
+// wrap (a newline and the continuation indentation); a flow expression that contains a comma
+// is written in single quotes. Every block line ends with its newline.
 
-start: "unitracker: " VERSION _NL playroutine meta _NL (clock _NL)? (voices _NL)? (tempo _NL)? (init _NL)? "song:" _NL row+ ending
+start: "unitracker: " VERSION _NL meta _NL (clock _NL)? (voices _NL)? (tempo _NL)? tables? (init _NL)? "song:" _NL row+ ending
 
-// ---- header -----------------------------------------------------------------------------
-
-playroutine: "playroutine: {ref: " PLAYER (_SEP "constants: " constants)? "}" _NL
-           | "playroutine:" _NL "  ref: " PLAYER _NL ("  constants: " constants _NL)? "  tables:" _NL table+
-table: "    " TABLE ": " (intmap | intlist) _NL
-constants: _LC constant (_SEP constant)* "}"
-constant: CONSTANT ": " INT
-intmap: _LC INT ": " INT (_SEP INT ": " INT)* "}"
-intlist: _LB INT (_SEP INT)* "]"
+// ---- header: clock, voices and tempo only where they differ from PAL, 3 and 6 ---------------
 
 meta: "meta: " _LC meta_item (_SEP meta_item)* "}"
 meta_item: META_KEY ": " text
@@ -25,6 +17,10 @@ text: TEXT | SQUOTED | DQUOTED
 clock: "clock: {cycles_per_tick: " INT ", clock_hz: " INT "}"
 voices: "voices: " INT
 tempo: "tempo: " (INT | "[" INT ", " INT "]")
+
+// the tables expressions index as T[k]: 0 outside the list
+tables: "tables:" _NL ("  " XTABLE ": " intlist _NL)+
+intlist: _LB INT (_SEP INT)* "]"
 
 // one event per voice: the state after init, a step of no duration before the first tick
 init: "init: " _LB event (_SEP event)* "]"
@@ -121,11 +117,8 @@ factor: INT | SIGNED | "v" | "φ" | "N"
 // ---- terminals --------------------------------------------------------------------------
 
 VERSION: /\d+\.\d+/
-PLAYER: "goattracker2" | "sidwizard" | "defmon"
 META_KEY: "title" | "author" | "released"
-TABLE: /[a-z_]+/
 XTABLE: /[A-EG-MO-Z][A-Za-z]*/
-CONSTANT: /[a-z]+/
 INT: /\d+/
 SIGNED: /[+-]\d+/
 CTRLMASK: /\d*\^\d+/
