@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "unitracker-grammar"
+version = "0.1.0"
+description = "The canonical unitracker document as a Lark grammar"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+authors = [{ name = "Josh Bailey" }]
+classifiers = ["Operating System :: POSIX :: Linux", "Programming Language :: Python :: 3"]
+dependencies = ["lark>=1.2"]
+
+[project.optional-dependencies]
+dev = ["black>=24", "pylint>=3", "pytest>=7", "pytest-cov>=4"]
+
+[project.urls]
+Homepage = "https://github.com/anarkiwi/unitracker-grammar"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+unitracker_grammar = ["*.lark"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.pylint.format]
+max-line-length = 100
+
+[tool.black]
+line-length = 100
