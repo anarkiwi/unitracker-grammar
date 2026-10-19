@@ -67,6 +67,24 @@ CASES = [
 ]
 
 
+REFUSED = [
+    (doc(INS + "{sr: 2, ad: 1}\n"), "line 6"),
+    (doc(INS + "{ctrl: [{note: C4, ctrl: 65}, end]}\n"), "line 6"),
+    (doc("      ins:\n       i1: {ad: 1}\n"), "line 6"),
+    (doc("      phrase:\n        p2: [C4!legato!freq:x1]\n"), "line 6"),
+    (doc("      phrase:\n        p2: [C4 .i1]\n"), "line 6"),
+    (doc(INS + "{pw: v+1}\n"), "line 6"),
+    (doc("      vinit:\n        0: {pw: 256}\n"), "line 5"),
+    (doc(INS + "{ad: 1}\n", ending="  - loop: 0"), "line 10"),
+    (HEADER.replace("meta", "title") + "song:\n  - end\n", "line 2"),
+    (
+        HEADER.replace("meta", "playroutine: {ref: goattracker2}\nmeta") + "song:\n  - end\n",
+        "line 2",
+    ),
+    (doc(INS + "{ad: 1}\n", "tables:\n  ftab: [1, 2]\n"), "line 4"),
+]
+
+
 @pytest.mark.parametrize("defs", CASES)
 def test_each_form_of_the_vocabulary_parses(defs):
     """Rows, instruments, programs, expressions, wraps and every command shape."""
@@ -92,6 +110,7 @@ def test_the_commands_are_one_chain_in_vocabulary_order():
         ("cmd_tempo", ["6", "7"]),
         ("cmd_vtempo", ["8"]),
         ("cmd_freq", ["x1"]),
+        ("cmd_legato", ["!legato"]),
     ]
 
 
@@ -117,7 +136,12 @@ def test_the_header_forms_parse():
     init = first(tree, "init")
     assert [str(e.children[0]) for e in init.children] == ["E2", "-", "-"]
     assert [chain(e, "cmd_") for e in init.children] == [
-        [("cmd_pw", ["256"]), ("cmd_cut", ["x1"]), ("cmd_freq", ["-139"])],
+        [
+            ("cmd_pw", ["256"]),
+            ("cmd_cut", ["x1"]),
+            ("cmd_freq", ["-139"]),
+            ("cmd_legato", ["!legato"]),
+        ],
         [("cmd_pw", ["2048"])],
         [],
     ]
@@ -132,35 +156,72 @@ def test_the_header_forms_parse():
     assert [[str(t) for t in p.children] for p in first(tree, "plays").children] == [
         ["p1"],
         ["p1", "+5"],
-        [],
+        ["~"],
     ]
 
 
-@pytest.mark.parametrize(
-    "text, where",
-    [
-        (doc(INS + "{sr: 2, ad: 1}\n"), "line 6"),
-        (doc(INS + "{ctrl: [{note: C4, ctrl: 65}, end]}\n"), "line 6"),
-        (doc("      ins:\n       i1: {ad: 1}\n"), "line 6"),
-        (doc("      phrase:\n        p2: [C4!legato!freq:x1]\n"), "line 6"),
-        (doc("      phrase:\n        p2: [C4 .i1]\n"), "line 6"),
-        (doc(INS + "{pw: v+1}\n"), "line 6"),
-        (doc("      vinit:\n        0: {pw: 256}\n"), "line 5"),
-        (doc(INS + "{ad: 1}\n", ending="  - loop: 0"), "line 10"),
-        (HEADER.replace("meta", "title") + "song:\n  - end\n", "line 2"),
-        (
-            HEADER.replace("meta", "playroutine: {ref: goattracker2}\nmeta") + "song:\n  - end\n",
-            "line 2",
-        ),
-        (doc(INS + "{ad: 1}\n", "tables:\n  ftab: [1, 2]\n"), "line 4"),
-    ],
-)
+@pytest.mark.parametrize("text, where", REFUSED)
 def test_other_spellings_are_refused(text, where):
     """Key order, indentation, command order, spaces in an event, operator spacing, fixed records,
     the song's ending, the header keys, a player's name and a lower-case table each have one
     form or none."""
     with pytest.raises(CanonicalError, match=rf"{where} column \d+: "):
         parse(text)
+
+
+@pytest.mark.parametrize(
+    "case, column", list(zip(REFUSED, [21, 32, 1, 23, 16, 19, 1, 1, 1, 1, 3], strict=True))
+)
+def test_a_refusal_is_at_its_place(case, column):
+    """Each refused spelling is refused at the same line and column as before the operators and
+    keywords became named terminals."""
+    text, where = case
+    with pytest.raises(CanonicalError, match=rf"^{where} column {column}: "):
+        parse(text)
+
+
+def test_the_operators_and_keywords_are_in_the_tree():
+    """The operators, keywords and keep flags are tokens of the tree, and layout is not."""
+    extra = [
+        doc("      x:\n        x1: -(9 // 2)\n", play="[p1, ~, end]"),
+        *(doc(INS + "{ctrl: [{route: " + r + "}, end]}\n") for r in ("+ 3", "'-'", "'- 3'")),
+    ]
+    trees = [parse(doc(d)) for d in CASES] + [parse(t) for t in extra]
+    tokens = {(t.type, t.strip()) for tree in trees for t in tree.scan_values(lambda _: True)}
+    assert {
+        ("ADD", "+"),
+        ("ADD", "-"),
+        ("MUL", "*"),
+        ("FLOORDIV", "//"),
+        ("MOD", "%"),
+        ("CMP", "<"),
+        ("V", "v"),
+        ("PHI", "φ"),
+        ("N", "N"),
+        ("F", "F("),
+        ("ABS", "abs("),
+        ("MIN", "min("),
+        ("MAX", "max("),
+        ("NEG", "-"),
+        ("CONT", "~"),
+        ("END", "end"),
+        ("LOOP", "loop:"),
+        ("NONE", "none"),
+        ("FILTER_NONE", "!filter:none"),
+        ("LEGATO", "!legato"),
+        ("KEEP_PW", "!pw"),
+        ("KEEP_FILTER", "!filter"),
+        ("ROUTE_ADD", "+"),
+        ("ROUTE_ADD_MASK", "+"),
+        ("ROUTE_REMOVE", "'-'"),
+        ("ROUTE_REMOVE_MASK", "'-"),
+    } <= tokens
+    assert not {t for t, _ in tokens} & {"_NL", "_LB", "_LC", "_SEP"}
+    assert [[str(c) for c in p.children] for p in first(trees[-4], "plays").children] == [
+        ["p1"],
+        ["~"],
+        ["end"],
+    ]
 
 
 def test_the_parser_is_built_once_from_the_packaged_grammar():
