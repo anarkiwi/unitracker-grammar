@@ -95,7 +95,8 @@ cmd_filter: "!filter:none" cmd_ad | cmd_ad
 cmd_ad: "!ad:" INT cmd_sr | cmd_sr
 cmd_sr: "!sr:" INT cmd_ctrl | cmd_ctrl
 cmd_ctrl: "!ctrl:" INT cmd_resfilt | cmd_resfilt
-cmd_resfilt: "!resfilt:" INT "/" INT cmd_vol | cmd_vol
+cmd_resfilt: "!resfilt:" INT "/" INT cmd_mode | cmd_mode
+cmd_mode: "!mode:" INT cmd_vol | cmd_vol
 cmd_vol: "!vol:" INT cmd_cut | cmd_cut
 cmd_cut: "!cut:" (INT | X) cmd_tempo | cmd_tempo
 cmd_tempo: "!tempo:" INT ("/" INT)? cmd_vtempo | cmd_vtempo
