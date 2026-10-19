@@ -52,7 +52,7 @@ CASES = [
     INS + "{pw: 95*φ\n            + 296, restart: [{hold: 3, ctrl: ^8, gate: 0}, {},\n"
     "            end]}\n",
     INS + "{ad: 1}\n      phrase:\n"
-    "        p2: [C4.i1!run:c1!ad:1!sr:2!ctrl:65!resfilt:15/1!vol:15!cut:x1!tempo:6/7!vtempo:8"
+    "        p2: [C4.i1!run:c1!ad:1!sr:2!ctrl:65!resfilt:15/1!mode:16!vol:15!cut:x1!tempo:6/7!vtempo:8"
     "!freq:x1!legato!pw!filter*2, -!pw:none!filter:none,\n"
     "          off!cut:80, on!freq:none, B-1!freq:-139, C10!pw:256, -!pw:x1!cut:512]\n",
 ]
@@ -77,6 +77,7 @@ def test_the_commands_are_one_chain_in_vocabulary_order():
         ("cmd_sr", ["2"]),
         ("cmd_ctrl", ["65"]),
         ("cmd_resfilt", ["15", "1"]),
+        ("cmd_mode", ["16"]),
         ("cmd_vol", ["15"]),
         ("cmd_cut", ["x1"]),
         ("cmd_tempo", ["6", "7"]),
