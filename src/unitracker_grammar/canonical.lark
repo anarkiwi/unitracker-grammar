@@ -49,7 +49,13 @@ ins_sr: "sr: " (INT) (_SEP ins_ctrl)? | ins_ctrl
 ins_ctrl: "ctrl: " (CTRL | program) (_SEP ins_pw)? | ins_pw
 ins_pw: "pw: " (PW | modulation) (_SEP ins_filter)? | ins_filter
 ins_filter: "filter: " (FILTER | modulation) (_SEP ins_freq)? | ins_freq
-ins_freq: "freq: " (fexpr) (_SEP ins_restart)? | ins_restart
+ins_freq: "freq: " (fexpr) (_SEP ins_fn)? | ins_fn
+ins_fn: "mod: " NAME (_WB param_bag)? (_SEP ins_restart)? | ins_restart
+param_bag: "{" pname_val (_SEP pname_val)* "}"
+pname_val: NAME _BSC (SIGNED | INT | NAME | pname_list)
+pname_list: "[" (SIGNED | INT) (_SEP (SIGNED | INT))* "]"
+_WB: /(?: |\n +)/          // a flow space that may be a line wrap
+_BSC: /:(?: |\n +)/        // a bag's colon, a space or a line wrap before its value
 ins_restart: "restart: " (RESTART | program)
 
 // a program: its rows in the order they run, then its end or its loop
@@ -97,7 +103,8 @@ cmd_vol: "!vol:" INT cmd_cut | cmd_cut
 cmd_cut: "!cut:" (INT | X) cmd_tempo | cmd_tempo
 cmd_tempo: "!tempo:" INT ("/" INT)? cmd_vtempo | cmd_vtempo
 cmd_vtempo: "!vtempo:" INT ("/" INT)? cmd_freq | cmd_freq
-cmd_freq: "!freq:" (X | NONE | SIGNED | INT) cmd_legato | cmd_legato
+cmd_freq: "!freq:" (X | NONE | SIGNED | INT) cmd_set | cmd_set
+cmd_set: ("!set " NAME " " (SIGNED | INT))+ cmd_legato | cmd_legato
 cmd_legato: LEGATO | 
 keep_pw: KEEP_PW |
 keep_filter: KEEP_FILTER |
@@ -134,6 +141,7 @@ PHRASE: /p\d+/
 TEXT: /[^\s,\[\]{}'"#&*!|>%@`][^,\[\]{}]*/
 SQUOTED: /'(?:[^']|'')*'/
 DQUOTED: /"(?:[^"\\]|\\.)*"/
+NAME: /[a-z][a-z0-9_]*/
 
 CONT: "~"
 END: "end"
@@ -147,6 +155,7 @@ FILTER_NONE: "!filter:none"
 LEGATO: "!legato"
 KEEP_PW: "!pw"
 KEEP_FILTER: "!filter"
+OSC_MOD: "symmetric" | "ramp" | "approach"
 V: "v"
 PHI: "φ"
 N: "N"
