@@ -60,6 +60,12 @@ CASES = [
     "      pw:\n        pw1: [{pw: none}, {run: c1}, {filter: none}, end]\n",
     INS + "{pw: 95*φ\n            + 296, restart: [{hold: 3, ctrl: ^8, gate: 0}, {},\n"
     "            end]}\n",
+    INS + "{ad: 1, sr: 2, mod: ramp}\n",
+    INS + "{ad: 1, sr: 2, mod: ramp {step: 2, skip: [1, 3]}}\n",
+    INS + "{ad: 1, mod: set {detune: 1, offset: -2}}\n",
+    INS + "{ad: 1, sr: 2, freq: v - 3, mod: ramp {step: 2}}\n",
+    INS + "{ad: 1, mod: set {detune: 1}}\n      phrase:\n"
+    "        p2: [C4.i1!freq:-4!set step 4!set offset 1, -*3]\n",
     INS + "{ad: 1}\n      phrase:\n"
     "        p2: [C4.i1!run:c1!ad:1!sr:2!ctrl:65!resfilt:15/1!mode:16!vol:15!cut:x1!tempo:6/7"
     "!vtempo:8!freq:x1!legato!pw!filter*2, -!pw:none!filter:none,\n"
@@ -74,6 +80,10 @@ REFUSED = [
     (doc("      phrase:\n        p2: [C4!legato!freq:x1]\n"), "line 6"),
     (doc("      phrase:\n        p2: [C4 .i1]\n"), "line 6"),
     (doc(INS + "{pw: v+1}\n"), "line 6"),
+    (doc(INS + "{ad: 1, mod: ramp {}}\n"), "line 6"),
+    (doc(INS + "{ad: 1, mod: 4}\n"), "line 6"),
+    (doc(INS + "{ad: 1, mod: ramp {step 2}}\n"), "line 6"),
+    (doc("      phrase:\n        p2: [C4.i1!set step]\n"), "line 6"),
     (doc("      vinit:\n        0: {pw: 256}\n"), "line 5"),
     (doc(INS + "{ad: 1}\n", ending="  - loop: 0"), "line 10"),
     (HEADER.replace("meta", "title") + "song:\n  - end\n", "line 2"),
@@ -125,6 +135,37 @@ def test_a_program_is_its_rows_in_order():
     assert str(first(tree, "program").children[-1]) == "1"
 
 
+def test_a_modulator_is_its_shape_and_its_bag():
+    """The instrument's ``mod:`` is its shape's name and its parameter bag, in the bag's order."""
+    tree = parse(doc(INS + "{ad: 1, sr: 2, mod: ramp {step: 2, skip: [1, 3]}}\n"))
+    fn = first(tree, "ins_fn")
+    assert str(fn.children[0]) == "ramp"
+    assert [str(v) for v in fn.scan_values(lambda v: True)] == [
+        "ramp",
+        "step",
+        "2",
+        "skip",
+        "1",
+        "3",
+    ]
+    assert [str(c) for c in first(tree, "ins_ad").children if isinstance(c, Token)] == ["1"]
+
+
+def test_a_note_set_is_its_writes_in_order():
+    """A note's ``!set`` writes name-value pairs in the order they come."""
+    tree = parse(
+        doc(
+            INS + "{ad: 1, mod: set {detune: 1}}\n      phrase:\n"
+            "        p2: [C4.i1!freq:-4!set step 4!set offset 1, -*3]\n"
+        )
+    )
+    event = first(first(tree, "phrase"), "event")
+    assert chain(event, "cmd_")[-2:] == [
+        ("cmd_freq", ["-4"]),
+        ("cmd_set", ["step", "4", "offset", "1"]),
+    ]
+
+
 def test_the_header_forms_parse():
     """Clock, voices, a swing tempo, the document's tables and the init row."""
     head = (
@@ -170,7 +211,8 @@ def test_other_spellings_are_refused(text, where):
 
 
 @pytest.mark.parametrize(
-    "case, column", list(zip(REFUSED, [21, 32, 1, 23, 16, 19, 1, 1, 1, 1, 3], strict=True))
+    "case, column",
+    list(zip(REFUSED, [21, 32, 1, 23, 16, 19, 32, 26, 36, 28, 1, 1, 1, 1, 3], strict=True)),
 )
 def test_a_refusal_is_at_its_place(case, column):
     """Each refused spelling is refused at the same line and column as before the operators and
