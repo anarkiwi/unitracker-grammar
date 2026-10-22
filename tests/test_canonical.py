@@ -201,6 +201,42 @@ def test_the_header_forms_parse():
     ]
 
 
+def test_the_hold_line_names_each_cell_s_events():
+    """``hold`` maps each cell to the voice events its modulators hold on, ``-k`` earlier."""
+    head = (
+        "tempo: 3\nhold: {freq: [step-1, row],\n  pw: [read, note-1, last-1], cut: [legato-2],"
+        " ctrl.freq: [note-1]}\n"
+    )
+    tree = parse(doc("", head))
+    cells = [[str(t) for t in c.children] for c in first(tree, "hold").children]
+    assert cells == [
+        ["freq", "step-1", "row"],
+        ["pw", "read", "note-1", "last-1"],
+        ["cut", "legato-2"],
+        ["ctrl.freq", "note-1"],
+    ]
+
+
+@pytest.mark.parametrize(
+    "hold",
+    [
+        "{vol: [step]}",
+        "{ctrl.vol: [step]}",
+        "{pw.ctrl: [step]}",
+        "{pw: [row-1]}",
+        "{pw: [step-0]}",
+        "{pw: [phrase]}",
+        "{pw: []}",
+        "{pw: [step,row]}",
+    ],
+)
+def test_other_hold_spellings_are_refused(hold):
+    """A cell other than freq, pw or cut (with or without ctrl.), an offset on row or of 0, an
+    unknown event, an empty list and a missing space are refused."""
+    with pytest.raises(CanonicalError):
+        parse(doc("", f"hold: {hold}\n"))
+
+
 @pytest.mark.parametrize("text, where", REFUSED)
 def test_other_spellings_are_refused(text, where):
     """Key order, indentation, command order, spaces in an event, operator spacing, fixed records,
