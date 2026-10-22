@@ -7,8 +7,8 @@ in its one text and compiled to Python.
 
 A document names no player. It holds everything it plays: instruments, programs, expressions,
 phrases and the tables its expressions index. Its only constants are the note table at its clock
-and the header defaults (PAL clock, 3 voices, tempo 6). Its `hold` line names, per cell, the
-voice events on which that cell's modulators hold (unitracker-player's
+and the header defaults (PAL clock, 3 voices, tempo 6). Its `hold` line names, per cell (`ctrl.` for
+the modulators a control-program row sets), the voice events on which its modulators hold (unitracker-player's
 [semantics](https://github.com/anarkiwi/unitracker-player/blob/main/docs/semantics.md#holds)).
 
 ## Install

@@ -18,7 +18,8 @@ clock: "clock: {cycles_per_tick: " INT ", clock_hz: " INT "}"
 voices: "voices: " INT
 tempo: "tempo: " (INT | "[" INT ", " INT "]")
 
-// the ticks each cell's modulators hold on: events of the voice, each k ticks earlier with -k
+// the ticks each cell's modulators hold on (ctrl.: those a control-program row sets): events of
+// the voice, each k ticks earlier with -k
 hold: "hold: " _LC hold_cell (_SEP hold_cell)* "}"
 hold_cell: HOLD_CELL ": " _LB HOLD_EVENT (_SEP HOLD_EVENT)* "]"
 
@@ -129,7 +130,7 @@ factor: INT | SIGNED | V | PHI | N
 
 VERSION: /\d+\.\d+/
 META_KEY: "title" | "author" | "released"
-HOLD_CELL: "freq" | "pw" | "cut"
+HOLD_CELL: /(?:ctrl\.)?(?:freq|pw|cut)/
 HOLD_EVENT: /(?:step|last|read|note|legato)(?:-[1-9]\d*)?|row/
 XTABLE: /[A-EG-MO-Z][A-Za-z]*/
 INT: /\d+/
