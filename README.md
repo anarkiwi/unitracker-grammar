@@ -2,7 +2,8 @@
 
 The canonical [unitracker](https://github.com/anarkiwi/unitracker) document as a
 [Lark](https://github.com/lark-parser/lark) grammar, with an LALR parser for it and the note
-table its expressions read as `F(k)`.
+table its expressions read as `F(k)`, and the modulator expression language: checked, printed
+in its one text and compiled to Python.
 
 A document names no player. It holds everything it plays: instruments, programs, expressions,
 phrases and the tables its expressions index. Its only constants are the note table at its clock
@@ -24,6 +25,23 @@ table(clock_hz=1022727)   # F(k) for every note whose word fits, from C0, at NTS
 ```
 
 `parser()` is the cached `lark.Lark` parser and `GRAMMAR` the grammar file resource.
+
+## Expressions
+
+`unitracker_grammar.expr` owns the modulator expression language. An expression is a stdlib
+`ast` node, read from a text by `tree` or from a parse tree's `expr` and `fexpr` rules by the
+`Nodes` transformer.
+
+```python
+from unitracker_grammar import expr, frequency
+expr.canonical("1024 + 16*min(3, φ)")       # '16*min(3, φ) + 1024', its one text
+fn = expr.compile_expr("v + W[φ]", {"_F": frequency, "_T": {"W": expr.indexed([1, 2])}})
+fn(10, 1, 48)                               # (v, φ, N) -> 12
+```
+
+`source` is the Python source of an expression (`ExpressionError` outside the grammar),
+`printed` the one text of a node and `written` an integer literal as an int. `//` and `%` raise
+`ZeroDivisionError` on a divisor of 0; with `zero=True` they are 0.
 
 ## Grammar
 
