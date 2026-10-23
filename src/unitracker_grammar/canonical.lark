@@ -1,4 +1,4 @@
-// The canonical unitracker document: format 1.21 with the init row (anarkiwi/unitracker#165),
+// The canonical unitracker document: format 1.22 with the init row (anarkiwi/unitracker#165),
 // value-or-expression command arguments (anarkiwi/unitracker#172) and no fixed record types
 // (anarkiwi/unitracker#126, anarkiwi/unitracker#165). A document names no player: everything it
 // plays is in it, and its only constants are the note table F(k) (notes.py) at its clock.
@@ -9,8 +9,14 @@
 // none ends the modulator of its level and the cell's default drives it (F(N) for freq; pw and
 // cut hold); hold also ends the program modulator, with pw's pulse or cut's filter slot, and the
 // cell holds. Format 1.20 spells pw's hold none and cut's hold filter: none / !filter:none.
+// Format 1.22 names each cell's modulator slots, in firing order, in its slots line, with the
+// events each holds and resets on and its default binding; a SLOT prefix (name.) on a cell's
+// row key, instrument field or command names the slot it binds or stops. A mod: template is an
+// expression over named parameters; an x instance is an expression or a template with its
+// parameter bag; a binding is an instance or template by name, an expression, or (but in a
+// command) a template with its bag.
 
-start: "unitracker: " VERSION _NL meta _NL (clock _NL)? (voices _NL)? (tempo _NL)? (hold _NL)? tables? (init _NL)? "song:" _NL row+ ending
+start: "unitracker: " VERSION _NL meta _NL (clock _NL)? (voices _NL)? (tempo _NL)? (hold _NL)? (slots _NL)? tables? (init _NL)? "song:" _NL row+ ending
 
 // ---- header: clock, voices and tempo only where they differ from PAL, 3 and 6 ---------------
 
@@ -22,10 +28,20 @@ clock: "clock: {cycles_per_tick: " INT ", clock_hz: " INT "}"
 voices: "voices: " INT
 tempo: "tempo: " (INT | "[" INT ", " INT "]")
 
-// the ticks each cell's modulators hold on (ctrl.: those a control-program row sets): events of
-// the voice, each k ticks earlier with -k
+// format 1.21: the ticks each cell's modulators hold on (ctrl.: those a control-program row
+// sets): events of the voice, each k ticks earlier with -k (row and row.KEY take no -k)
 hold: "hold: " _LC hold_cell (_SEP hold_cell)* "}"
-hold_cell: HOLD_CELL ": " _LB HOLD_EVENT (_SEP HOLD_EVENT)* "]"
+hold_cell: HOLD_CELL ": " events
+events: _LB HOLD_EVENT (_SEP HOLD_EVENT)* "]"
+
+// format 1.22: per cell, its slots in firing order, each with its default binding and the
+// events it holds and resets on; a cell left out has one slot, named after it, with none
+slots: "slots: " _LC slot_cell (_SEP slot_cell)* "}"
+slot_cell: CELL ": " _LC slot (_SEP slot)* "}"
+slot: NAME ": " _LC slot_mod? "}"
+slot_mod: "mod: " NAME (_SEP slot_hold)? | slot_hold
+slot_hold: "hold: " events (_SEP slot_reset)? | slot_reset
+slot_reset: "reset: " events
 
 // the tables expressions index as T[k]: 0 outside the list
 tables: "tables:" _NL ("  " XTABLE ": " intlist _NL)+
@@ -49,16 +65,17 @@ section: "      restart:" _NL ("        " RESTART ": " program _NL)+
        | "      ctrl:" _NL ("        " CTRL ": " program _NL)+
        | "      pw:" _NL ("        " PW ": " modulation _NL)+
        | "      filter:" _NL ("        " FILTER ": " modulation _NL)+
-       | "      x:" _NL ("        " X ": " expr _NL)+
+       | "      mod:" _NL ("        " NAME ": " expr _NL)+
+       | "      x:" _NL ("        " X ": " expr (" " param_bag)? _NL)+
        | "      phrase:" _NL ("        " PHRASE ": " phrase _NL)+
 
 instrument: _LC ins_ad "}"
 ins_ad: "ad: " (INT) (_SEP ins_sr)? | ins_sr
 ins_sr: "sr: " (INT) (_SEP ins_ctrl)? | ins_ctrl
 ins_ctrl: "ctrl: " (CTRL | program) (_SEP ins_pw)? | ins_pw
-ins_pw: "pw: " (PW | modulation) (_SEP ins_filter)? | ins_filter
-ins_filter: "filter: " (FILTER | modulation) (_SEP ins_freq)? | ins_freq
-ins_freq: "freq: " (fexpr) (_SEP ins_fn)? | ins_fn
+ins_pw: SLOT? "pw: " (PW | X | NONE | modulation) (_SEP ins_pw)? | ins_filter
+ins_filter: SLOT? "filter: " (FILTER | X | NONE | modulation) (_SEP ins_filter)? | ins_freq
+ins_freq: SLOT? "freq: " (X | NONE | fexpr | bound) (_SEP ins_freq)? | ins_fn
 ins_fn: "mod: " NAME (_WB param_bag)? (_SEP ins_restart)? | ins_restart
 param_bag: "{" pname_val (_SEP pname_val)* "}"
 pname_val: NAME _BSC (SIGNED | INT | NAME | pname_list)
@@ -69,8 +86,10 @@ ins_restart: "restart: " (RESTART | program)
 
 // a program: its rows in the order they run, then its end or its loop
 program: _LB (row_ _SEP)* (END | _LC LOOP INT "}") "]"
-// a pulse or filter program that is one expression (a constant is one) is written as that
-modulation: program | fexpr
+// a pulse or filter program that is one binding (a constant is one) is written as that
+modulation: program | fexpr | bound
+// a template bound with its parameters
+bound: fexpr " " param_bag
 
 row_: _LC "}" | _LC row_wait "}"
 row_wait: "wait: " (INT) (_SEP row_hold)? | row_hold
@@ -80,19 +99,19 @@ row_gate: "gate: " (INT) (_SEP row_note)? | row_note
 row_note: "note: " (note_value) (_SEP row_ad)? | row_ad
 row_ad: "ad: " (INT) (_SEP row_sr)? | row_sr
 row_sr: "sr: " (INT) (_SEP row_pw)? | row_pw
-row_pw: "pw: " (cell_value) (_SEP row_cut)? | row_cut
-row_cut: "cut: " (cell_value) (_SEP row_res)? | row_res
+row_pw: SLOT? "pw: " (cell_value) (_SEP row_pw)? | row_cut
+row_cut: SLOT? "cut: " (cell_value) (_SEP row_cut)? | row_res
 row_res: "res: " (INT) (_SEP row_route)? | row_route
 row_route: "route: " (route_value) (_SEP row_mode)? | row_mode
 row_mode: "mode: " (INT) (_SEP row_freq)? | row_freq
-row_freq: "freq: " (cell_value) (_SEP row_run)? | row_run
+row_freq: SLOT? "freq: " (cell_value) (_SEP row_freq)? | row_run
 row_run: "run: " (program_name) (_SEP row_filter)? | row_filter
 row_filter: "filter: " (NONE) (_SEP row_vol)? | row_vol
 row_vol: "vol: " (INT)
 
 ctrl_value: INT | CTRLMASK
 note_value: SIGNED | NOTE
-cell_value: fexpr | NONE | HOLD
+cell_value: fexpr | bound | X | NONE | HOLD
 route_value: INT | ROUTE_ADD | ROUTE_ADD_MASK INT | ROUTE_REMOVE | ROUTE_REMOVE_MASK INT "'"
 program_name: CTRL | PW | FILTER
 
@@ -101,7 +120,7 @@ program_name: CTRL | PW | FILTER
 phrase: _LB event (_SEP event)* "]"
 event: NOTE_ATOM ("." INS)? cmd_run keep_pw keep_filter ("*" INT)?
 cmd_run: "!run:" (program_name | NONE) cmd_pw | cmd_pw
-cmd_pw: "!pw:" (INT | X | NONE | HOLD) cmd_filter | cmd_filter
+cmd_pw: CMD_PW (INT | X | NONE | HOLD) cmd_pw | cmd_filter
 cmd_filter: FILTER_NONE cmd_ad | cmd_ad
 cmd_ad: "!ad:" INT cmd_sr | cmd_sr
 cmd_sr: "!sr:" INT cmd_ctrl | cmd_ctrl
@@ -109,10 +128,10 @@ cmd_ctrl: "!ctrl:" INT cmd_resfilt | cmd_resfilt
 cmd_resfilt: "!resfilt:" INT "/" INT cmd_mode | cmd_mode
 cmd_mode: "!mode:" INT cmd_vol | cmd_vol
 cmd_vol: "!vol:" INT cmd_cut | cmd_cut
-cmd_cut: "!cut:" (INT | X | NONE | HOLD) cmd_tempo | cmd_tempo
+cmd_cut: CMD_CUT (INT | X | NONE | HOLD) cmd_cut | cmd_tempo
 cmd_tempo: "!tempo:" INT ("/" INT)? cmd_vtempo | cmd_vtempo
 cmd_vtempo: "!vtempo:" INT ("/" INT)? cmd_freq | cmd_freq
-cmd_freq: "!freq:" (X | NONE | HOLD | SIGNED | INT) cmd_set | cmd_set
+cmd_freq: CMD_FREQ (X | NONE | HOLD | SIGNED | INT) cmd_freq | cmd_set
 cmd_set: ("!set " NAME " " (SIGNED | INT))+ cmd_legato | cmd_legato
 cmd_legato: LEGATO | 
 keep_pw: KEEP_PW |
@@ -124,7 +143,7 @@ keep_filter: KEEP_FILTER |
 fexpr: expr | "'" expr "'"
 expr: term (ADD term)*
 term: factor (MUL factor | FLOORDIV factor | MOD factor)*
-factor: INT | SIGNED | V | PHI | N
+factor: INT | SIGNED | V | PHI | N | EVENT_NOTE | PARAM
       | F expr ")" | XTABLE "[" expr "]"
       | ABS expr ")" | MIN expr _SEP expr ")" | MAX expr _SEP expr ")"
       | "(" expr ")" | "(" expr CMP expr ")"
@@ -135,7 +154,14 @@ factor: INT | SIGNED | V | PHI | N
 VERSION: /\d+\.\d+/
 META_KEY: "title" | "author" | "released"
 HOLD_CELL: /(?:ctrl\.)?(?:freq|pw|cut)/
-HOLD_EVENT: /(?:step|last|read|note|legato)(?:-[1-9]\d*)?|row/
+CELL: /freq|pw|cut/
+SLOT: /[a-z][a-z0-9_]*\./
+CMD_PW: /!(?:[a-z][a-z0-9_]*\.)?pw:/
+CMD_CUT: /!(?:[a-z][a-z0-9_]*\.)?cut:/
+CMD_FREQ: /!(?:[a-z][a-z0-9_]*\.)?freq:/
+HOLD_EVENT: /(?:step|last|read|note|legato)(?:-[1-9]\d*)?|row(?:\.[a-z]+)?/
+// a template's parameter: a lowercase name, but a record's name (x1, pw1, f1, ...) or a function's
+PARAM: /(?!(?:x|pw|[cfipr])\d+\b)[a-z][a-z0-9_]*\b(?!\()/
 XTABLE: /[A-EG-MO-Z][A-Za-z]*/
 INT: /\d+/
 SIGNED: /[+-]\d+/
@@ -171,6 +197,7 @@ OSC_MOD: "symmetric" | "ramp" | "approach"
 V: "v"
 PHI: "φ"
 N: "N"
+EVENT_NOTE: "n"
 F: "F("
 ABS: "abs("
 MIN: "min("

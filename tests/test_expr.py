@@ -9,9 +9,11 @@ from unitracker_grammar import frequency, parse
 from unitracker_grammar.expr import (
     ExpressionError,
     Nodes,
+    bind,
     canonical,
     compile_expr,
     indexed,
+    params,
     printed,
     source,
     tree,
@@ -132,6 +134,7 @@ FORMS = [
     "(v < 3) + (φ >= 2)*(N != 0) + (v == N) - (v <= 1) + (φ > 4)",
     "(v + 1)*(φ - 1) % 7",
     "-(v + 1) + -v",
+    "F(n + 12) - F(N) + n*φ",
 ]
 
 
@@ -165,3 +168,34 @@ def test_a_table_reads_zero_outside_its_values():
 
 def test_a_text_is_its_node():
     assert ast.dump(tree(" v + 1 ")) == ast.dump(ast.parse("v + 1", mode="eval").body)
+
+
+def test_n_is_the_event_note_a_fourth_argument_0_when_left_out():
+    """``n`` compiles to the function's fourth argument, which defaults to 0, and orders with the
+    other names."""
+    fn = compile_expr("F(n) + N - n", NS, zero=True)
+    assert fn(0, 0, 50, 48) == frequency(48) + 2
+    assert fn(0, 0, 50) == frequency(0) + 50
+    assert canonical("n + N + v + 2*n") == "N + 3*n + v"
+    assert source("n", ()) == "n"
+
+
+def test_a_template_s_parameters_bind_to_integers():
+    """A template reads lowercase parameters, not the names of its calls and tables; binding
+    every one of them, and no other, closes it, and an unbound one does not compile."""
+    node = tree("W[o + min(φ, a)]*v + abs(a - n) + N")
+    assert params(node) == {"o", "a"}
+    closed = bind(node, {"o": 1, "a": 2})
+    assert printed(closed) == "N + abs(-n + 2) + v*W[min(2, φ) + 1]"
+    assert compile_expr(closed, NS)(3, 0, 7, 4) == 7 + 3 * 6 + 2
+    assert params(node) == {"o", "a"} and printed(bind(tree("v + 1"), {})) == "v + 1"
+    for bag in ({"o": 1}, {"o": 1, "a": 2, "b": 3}):
+        with pytest.raises(ExpressionError, match="parameters"):
+            bind(node, bag)
+    with pytest.raises(ExpressionError, match="unbound parameter 'o'"):
+        source(node, ["W"])
+
+
+def test_a_parameter_in_a_parse_tree_is_a_name():
+    (node,) = (Nodes().transform(t) for t in _expressions("v + s*2"))
+    assert params(node) == {"s"} and printed(node) == "v + 2*s"

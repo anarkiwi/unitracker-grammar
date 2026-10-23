@@ -2,25 +2,28 @@
 
 Integer literals, ``+ - *``, ``//`` (floor division), ``%`` (floor modulo), ``abs``, ``min``,
 ``max``, a comparison ``(a op b)`` as 1 or 0 (op one of ``== != < <= > >=``), ``v``, ``φ``,
-``N``, ``F(k)`` (the frequency of note k) and ``T[k]`` for a named table ``T``. An expression is
-a stdlib :mod:`ast` node, read from a text by :func:`tree` or from a canonical parse tree by
-:class:`Nodes`.
+``N`` (the sounding note), ``n`` (the event note), ``F(k)`` (the frequency of note k) and
+``T[k]`` for a named table ``T``; a template also reads named parameters, lowercase names
+:func:`bind` replaces with integers. An expression is a stdlib :mod:`ast` node, read from a
+text by :func:`tree` or from a canonical parse tree by :class:`Nodes`.
 """
 
 import ast
+import copy
 import functools
 
 from lark import Token, Transformer
 
 PHI = "φ"
-NAMES = {"v": "v", PHI: "phi", "N": "N"}
+NAMES = {"v": "v", PHI: "phi", "N": "N", "n": "n"}
 CALLS = {"abs": 1, "min": 2, "max": 2, "F": 1}
 _CALLED = {"F": "_F"}
 _BINARY = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.FloorDiv: "//", ast.Mod: "%"}
 _COMPARE = {ast.Eq: "==", ast.NotEq: "!=", ast.Lt: "<", ast.LtE: "<=", ast.Gt: ">", ast.GtE: ">="}
 _OPERATOR = {text: op for op, text in (_BINARY | _COMPARE).items()}
 _GUARDED = {"//": "_div", "%": "_mod"}
-_ATOMS = {"V": "v", "PHI": PHI, "N": "N"}
+_PARAMS = "v, phi, N, n=0"
+_ATOMS = {"V": "v", "PHI": PHI, "N": "N", "EVENT_NOTE": "n"}
 
 
 class ExpressionError(ValueError):
@@ -37,14 +40,16 @@ def written(text: str):
 
 def _python(node, tables, zero: bool) -> str:
     """Python source of a parsed expression reading ``tables`` (see :func:`source`)."""
-    # pylint: disable=too-many-return-statements
+    # pylint: disable=too-many-return-statements,too-many-branches
     if (
         isinstance(node, ast.Constant)
         and isinstance(node.value, int)
         and not isinstance(node.value, bool)
     ):
         return str(node.value)
-    if isinstance(node, ast.Name) and node.id in NAMES:
+    if isinstance(node, ast.Name):
+        if node.id not in NAMES:
+            raise ExpressionError(f"unbound parameter {node.id!r}")
         return NAMES[node.id]
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         return f"(-{_python(node.operand, tables, zero)})"
@@ -100,9 +105,9 @@ def tree(text: str) -> ast.expr:
 
 
 def source(expr: str | ast.expr, tables=(), zero: bool = False) -> str:
-    """Python source over ``v``, ``phi``, ``N``, ``_F`` and ``_T`` of an expression text or node;
-    ``zero``: ``//`` and ``%`` by a divisor that is no nonzero literal call ``_div`` and ``_mod``,
-    0 by a divisor of 0, else they raise ZeroDivisionError."""
+    """Python source over ``v``, ``phi``, ``N``, ``n``, ``_F`` and ``_T`` of an expression text or
+    node; ``zero``: ``//`` and ``%`` by a divisor that is no nonzero literal call ``_div`` and
+    ``_mod``, 0 by a divisor of 0, else they raise ZeroDivisionError."""
     return _python(tree(expr) if isinstance(expr, str) else expr, set(tables), zero)
 
 
@@ -232,7 +237,7 @@ def _mod(a: int, b: int) -> int:
 
 
 def compile_expr(expr: str | ast.expr, namespace: dict, zero: bool = False):
-    """A function ``(v, phi, N) -> int`` of an expression text or node (``zero`` as in
+    """A function ``(v, phi, N, n=0) -> int`` of an expression text or node (``zero`` as in
     :func:`source`).
 
     ``namespace``, the function's globals, holds ``_F(k)``, the frequency of format note k, and
@@ -241,8 +246,43 @@ def compile_expr(expr: str | ast.expr, namespace: dict, zero: bool = False):
     body = source(expr, namespace["_T"], zero)
     if zero:
         # pylint: disable-next=eval-used
-        return eval(f"lambda _div, _mod: lambda v, phi, N: {body}", namespace)(_div, _mod)
-    return eval(f"lambda v, phi, N: {body}", namespace)  # pylint: disable=eval-used
+        return eval(f"lambda _div, _mod: lambda {_PARAMS}: {body}", namespace)(_div, _mod)
+    return eval(f"lambda {_PARAMS}: {body}", namespace)  # pylint: disable=eval-used
+
+
+def _named(node) -> list:
+    """The parameter nodes of an expression node: its names but ``v``, ``φ``, ``N``, ``n`` and
+    the names of its calls and tables."""
+    skip = {id(n.func) for n in ast.walk(node) if isinstance(n, ast.Call)}
+    skip |= {id(n.value) for n in ast.walk(node) if isinstance(n, ast.Subscript)}
+    return [
+        n
+        for n in ast.walk(node)
+        if isinstance(n, ast.Name) and n.id not in NAMES and id(n) not in skip
+    ]
+
+
+def params(node) -> set[str]:
+    """The names of the parameters a template node reads."""
+    return {n.id for n in _named(node)}
+
+
+def bind(node, values: dict) -> ast.expr:
+    """Template node ``node`` with each parameter replaced by its integer in ``values``, which
+    names each parameter and no other."""
+    node = copy.deepcopy(node)
+    named = _named(node)
+    names = {n.id for n in named}
+    if names != set(values):
+        missing, extra = sorted(names - set(values)), sorted(set(values) - names)
+        raise ExpressionError(f"parameters: missing {missing}, unknown {extra}")
+    ids = {id(n) for n in named}
+
+    class _Bind(ast.NodeTransformer):
+        def visit_Name(self, name):  # pylint: disable=invalid-name,missing-function-docstring
+            return ast.Constant(values[name.id]) if id(name) in ids else name
+
+    return _Bind().visit(node)
 
 
 def _at(values: tuple, k: int) -> int:
@@ -282,6 +322,8 @@ class Nodes(Transformer):
             return ast.Constant(int(head))
         if head.type in _ATOMS:
             return ast.Name(_ATOMS[head.type])
+        if head.type == "PARAM":
+            return ast.Name(str(head))
         if head.type == "XTABLE":
             return ast.Subscript(ast.Name(str(head)), rest[0])
         if head.type == "NEG":
