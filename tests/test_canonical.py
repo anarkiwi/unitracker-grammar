@@ -69,7 +69,7 @@ CASES = [
     INS + "{ad: 1}\n      phrase:\n"
     "        p2: [C4.i1!run:c1!ad:1!sr:2!ctrl:65!resfilt:15/1!mode:16!vol:15!cut:x1!tempo:6/7"
     "!vtempo:8!freq:x1!legato!pw!filter*2, -!pw:none!filter:none,\n"
-    "          off!cut:80, on!freq:none, B-1!freq:-139, C10!pw:256, -!pw:x1!cut:512]\n",
+    "          off!cut:80, on!freq:none, -!freq:hold, B-1!freq:-139, C10!pw:256, -!pw:x1!cut:512]\n",
 ]
 
 
@@ -285,6 +285,7 @@ def test_the_operators_and_keywords_are_in_the_tree():
         ("END", "end"),
         ("LOOP", "loop:"),
         ("NONE", "none"),
+        ("HOLD", "hold"),
         ("FILTER_NONE", "!filter:none"),
         ("LEGATO", "!legato"),
         ("KEEP_PW", "!pw"),

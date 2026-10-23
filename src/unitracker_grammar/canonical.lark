@@ -108,7 +108,7 @@ cmd_vol: "!vol:" INT cmd_cut | cmd_cut
 cmd_cut: "!cut:" (INT | X) cmd_tempo | cmd_tempo
 cmd_tempo: "!tempo:" INT ("/" INT)? cmd_vtempo | cmd_vtempo
 cmd_vtempo: "!vtempo:" INT ("/" INT)? cmd_freq | cmd_freq
-cmd_freq: "!freq:" (X | NONE | SIGNED | INT) cmd_set | cmd_set
+cmd_freq: "!freq:" (X | NONE | HOLD | SIGNED | INT) cmd_set | cmd_set
 cmd_set: ("!set " NAME " " (SIGNED | INT))+ cmd_legato | cmd_legato
 cmd_legato: LEGATO | 
 keep_pw: KEEP_PW |
@@ -154,6 +154,7 @@ CONT: "~"
 END: "end"
 LOOP: "loop: "
 NONE: "none"
+HOLD: "hold"
 ROUTE_ADD: "+"
 ROUTE_ADD_MASK: "+ "
 ROUTE_REMOVE: "'-'"
