@@ -14,7 +14,7 @@ from unitracker_grammar import (
     table,
 )
 
-HEADER = "unitracker: 1.20\nmeta: {title: T, author: A}\n"
+HEADER = "unitracker: 1.21\nmeta: {title: T, author: A}\n"
 INS = "      ins:\n        i1: "
 
 
@@ -133,6 +133,24 @@ def test_a_program_is_its_rows_in_order():
         [("row_wait", ["2"]), ("row_ctrl", ["17"]), ("row_note", ["C5"])],
     ]
     assert str(first(tree, "program").children[-1]) == "1"
+
+
+@pytest.mark.parametrize("cell", ["freq", "pw", "cut"])
+@pytest.mark.parametrize("stop", ["none", "hold"])
+def test_each_modulated_cell_takes_none_and_hold_as_a_row_key_and_a_command(cell, stop):
+    """``none`` and ``hold`` are one keyword each, the same for freq, pw and cut, in a program
+    row and in a command."""
+    tree = parse(
+        doc(
+            INS + f"{{ctrl: [{{{cell}: {stop}}}, end]}}\n      phrase:\n"
+            f"        p2: [C4.i1!{cell}:{stop}]\n"
+        )
+    )
+    row, command = first(first(tree, f"row_{cell}"), "cell_value"), first(tree, f"cmd_{cell}")
+    for node in (row, command):
+        assert [(t.type, str(t)) for t in node.children if isinstance(t, Token)] == [
+            (stop.upper(), stop)
+        ]
 
 
 def test_a_modulator_is_its_shape_and_its_bag():
