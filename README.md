@@ -7,10 +7,14 @@ in its one text and compiled to Python.
 
 A document names no player. It holds everything it plays: instruments, programs, expressions,
 phrases and the tables its expressions index. Its only constants are the note table at its clock
-and the header defaults (PAL clock, 3 voices, tempo 6). Its `hold` line names, per cell
-(`ctrl.` for the modulators a control-program row sets), the voice events its modulators hold
-on (unitracker-player's
-[semantics](https://github.com/anarkiwi/unitracker-player/blob/main/docs/semantics.md#holds)).
+and the header defaults (PAL clock, 3 voices, tempo 6). Format 1.22's `slots` line names, per
+cell, the modulator slots that fire in order, each with its default binding and the voice
+events it holds and resets on (`slots: {freq: {wave: {mod: note, reset: [row.note]}, tick:
+{hold: [step-1, row]}}}`); its `mod` records are templates over named parameters and its `x`
+records instances (`x1: porta {s: 32}`); a `slot.` prefix on a cell's row key, instrument field
+or command (`tick.freq: x3`, `!tick.freq:x3`) names the slot it binds or stops. Format 1.21's
+`hold` line names, per cell, the events its modulators hold on (unitracker-player's
+[semantics](https://github.com/anarkiwi/unitracker-player/blob/main/docs/semantics.md)).
 
 ## Install
 
@@ -39,10 +43,12 @@ table(clock_hz=1022727)   # F(k) for every note whose word fits, from C0, at NTS
 from unitracker_grammar import expr, frequency
 expr.canonical("1024 + 16*min(3, φ)")       # '16*min(3, φ) + 1024', its one text
 fn = expr.compile_expr("v + W[φ]", {"_F": frequency, "_T": {"W": expr.indexed([1, 2])}})
-fn(10, 1, 48)                               # (v, φ, N) -> 12
+fn(10, 1, 48)                               # (v, φ, N, n=0) -> 12
 ```
 
-`source` is the Python source of an expression (`ExpressionError` outside the grammar),
+`v` is the cell's value, `φ` the modulator's tick count, `N` the sounding note and `n` the event
+note; a template's other lowercase names are its parameters, which `params` lists and `bind`
+replaces with integers. `source` is the Python source of an expression (`ExpressionError` outside the grammar),
 `printed` the one text of a node and `written` an integer literal as an int. `//` and `%` raise
 `ZeroDivisionError` on a divisor of 0; with `zero=True` they are 0.
 
