@@ -1,10 +1,14 @@
-// The canonical unitracker document: format 1.20 with the init row (anarkiwi/unitracker#165),
+// The canonical unitracker document: format 1.21 with the init row (anarkiwi/unitracker#165),
 // value-or-expression command arguments (anarkiwi/unitracker#172) and no fixed record types
 // (anarkiwi/unitracker#126, anarkiwi/unitracker#165). A document names no player: everything it
 // plays is in it, and its only constants are the note table F(k) (notes.py) at its clock.
 // Whitespace is exact, but a space inside a flow collection or a block scalar may be a line
 // wrap (a newline and the continuation indentation); a flow expression that contains a comma
 // is written in single quotes. Every block line ends with its newline.
+// A modulated cell, freq, pw or cut, takes the same two stops, as a row key and as a command:
+// none ends the modulator of its level and the cell's default drives it (F(N) for freq; pw and
+// cut hold); hold also ends the program modulator, with pw's pulse or cut's filter slot, and the
+// cell holds. Format 1.20 spells pw's hold none and cut's hold filter: none / !filter:none.
 
 start: "unitracker: " VERSION _NL meta _NL (clock _NL)? (voices _NL)? (tempo _NL)? (hold _NL)? tables? (init _NL)? "song:" _NL row+ ending
 
@@ -76,19 +80,19 @@ row_gate: "gate: " (INT) (_SEP row_note)? | row_note
 row_note: "note: " (note_value) (_SEP row_ad)? | row_ad
 row_ad: "ad: " (INT) (_SEP row_sr)? | row_sr
 row_sr: "sr: " (INT) (_SEP row_pw)? | row_pw
-row_pw: "pw: " (pw_value) (_SEP row_cut)? | row_cut
-row_cut: "cut: " (fexpr) (_SEP row_res)? | row_res
+row_pw: "pw: " (cell_value) (_SEP row_cut)? | row_cut
+row_cut: "cut: " (cell_value) (_SEP row_res)? | row_res
 row_res: "res: " (INT) (_SEP row_route)? | row_route
 row_route: "route: " (route_value) (_SEP row_mode)? | row_mode
 row_mode: "mode: " (INT) (_SEP row_freq)? | row_freq
-row_freq: "freq: " (fexpr) (_SEP row_run)? | row_run
+row_freq: "freq: " (cell_value) (_SEP row_run)? | row_run
 row_run: "run: " (program_name) (_SEP row_filter)? | row_filter
 row_filter: "filter: " (NONE) (_SEP row_vol)? | row_vol
 row_vol: "vol: " (INT)
 
 ctrl_value: INT | CTRLMASK
 note_value: SIGNED | NOTE
-pw_value: fexpr | NONE
+cell_value: fexpr | NONE | HOLD
 route_value: INT | ROUTE_ADD | ROUTE_ADD_MASK INT | ROUTE_REMOVE | ROUTE_REMOVE_MASK INT "'"
 program_name: CTRL | PW | FILTER
 
@@ -97,7 +101,7 @@ program_name: CTRL | PW | FILTER
 phrase: _LB event (_SEP event)* "]"
 event: NOTE_ATOM ("." INS)? cmd_run keep_pw keep_filter ("*" INT)?
 cmd_run: "!run:" (program_name | NONE) cmd_pw | cmd_pw
-cmd_pw: "!pw:" (INT | X | NONE) cmd_filter | cmd_filter
+cmd_pw: "!pw:" (INT | X | NONE | HOLD) cmd_filter | cmd_filter
 cmd_filter: FILTER_NONE cmd_ad | cmd_ad
 cmd_ad: "!ad:" INT cmd_sr | cmd_sr
 cmd_sr: "!sr:" INT cmd_ctrl | cmd_ctrl
@@ -105,7 +109,7 @@ cmd_ctrl: "!ctrl:" INT cmd_resfilt | cmd_resfilt
 cmd_resfilt: "!resfilt:" INT "/" INT cmd_mode | cmd_mode
 cmd_mode: "!mode:" INT cmd_vol | cmd_vol
 cmd_vol: "!vol:" INT cmd_cut | cmd_cut
-cmd_cut: "!cut:" (INT | X) cmd_tempo | cmd_tempo
+cmd_cut: "!cut:" (INT | X | NONE | HOLD) cmd_tempo | cmd_tempo
 cmd_tempo: "!tempo:" INT ("/" INT)? cmd_vtempo | cmd_vtempo
 cmd_vtempo: "!vtempo:" INT ("/" INT)? cmd_freq | cmd_freq
 cmd_freq: "!freq:" (X | NONE | HOLD | SIGNED | INT) cmd_set | cmd_set
