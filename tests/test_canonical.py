@@ -68,8 +68,8 @@ CASES = [
     "        p2: [C4.i1!freq:-4!set step 4!set offset 1, -*3]\n",
     INS + "{ad: 1}\n      phrase:\n"
     "        p2: [C4.i1!run:c1!ad:1!sr:2!ctrl:65!resfilt:15/1!mode:16!vol:15!cut:x1!tempo:6/7"
-    "!vtempo:8!freq:x1!legato!pw!filter*2, -!pw:none!filter:none,\n"
-    "          off!cut:80, on!freq:none, -!freq:hold, B-1!freq:-139, C10!pw:256, -!pw:x1!cut:512]\n",
+    "!vtempo:8!freq:x1!legato!pw!filter*2, -!pw:none!filter:none, -!freq:hold,\n"
+    "          off!cut:80, on!freq:none, B-1!freq:-139, C10!pw:256, -!pw:x1!cut:512]\n",
 ]
 
 
