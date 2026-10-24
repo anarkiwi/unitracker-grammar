@@ -306,7 +306,8 @@ def test_the_parser_is_built_once_from_the_packaged_grammar():
 
 def test_the_note_table_is_equal_temperament_from_a4_in_words_that_fit():
     """A4 at PAL is 7493; an octave doubles the word within rounding; NTSC words are lower; the
-    table stops where a word overflows and F(k) is 0 there and below C0."""
+    table stops where a word overflows and F(k) is 0 there; below C0 F(k) goes on halving an
+    octave down until the word rounds to 0."""
     assert frequency(57) == 7493
     assert frequency(57, NTSC_HZ) == 7218
     pal = table(PAL_HZ)
@@ -315,7 +316,10 @@ def test_the_note_table_is_equal_temperament_from_a4_in_words_that_fit():
     )
     ntsc = table(NTSC_HZ)
     assert all(a < b for a, b in zip(ntsc, pal)) and len(ntsc) > len(pal)
-    assert pal[-1] < 1 << 16 and frequency(len(pal)) == 0 and frequency(-1) == 0
+    assert pal[-1] < 1 << 16 and frequency(len(pal)) == 0
+    assert frequency(-1) == 263 and frequency(-12) == 139 and frequency(-24) == 70
+    low = [frequency(k) for k in range(-128, 0)]
+    assert low.index(next(filter(None, low))) == 128 - 109 and all(low[19:])
     assert ntsc[:3] == [268, 284, 301]
 
 
@@ -887,7 +891,8 @@ def test_the_note_table_rounds_to_the_nearest_word_or_down():
     assert table(985240, "floor") == [int(x) for x in exact]
     assert table(985240) == [round(x) for x in exact]
     assert frequency(57, 985240, "floor") == 7492 and frequency(57, 985240) == 7493
-    assert frequency(-1, rounding="floor") == 0 == frequency(95, 985240, "floor")
+    assert frequency(-98, rounding="floor") == 0 == frequency(95, 985240, "floor")
+    assert frequency(-97, rounding="floor") == 1 and frequency(-1, rounding="floor") == 262
 
 
 @pytest.mark.parametrize(
