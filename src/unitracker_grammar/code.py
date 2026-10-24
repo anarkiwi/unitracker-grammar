@@ -459,12 +459,11 @@ def check_document(tree: Tree) -> Tree:
     or ExpressionError: its state names (:func:`state`), its templates (:func:`templates`,
     :func:`signatures`, :func:`programs`), its anonymous code bodies (checked as templates,
     reading no parameter), its tables (every table an expression or code reads is defined),
-    an expression outside a template reads no parameter, and a pulse or filter record that is
-    one binding is written as that binding."""
+    an expression outside a template reads no parameter nor names a template, and a pulse or
+    filter record that is one binding is written as that binding (CanonicalError)."""
     names = {n for variables in state(tree).values() for n, _ in variables}
     templates(tree)
-    signatures(tree)
-    programs(tree)
+    named = signatures(tree).keys() | programs(tree).keys()
     tables = {"F"} | {str(t) for node in _top(tree, "tables") for t in node.children[::2]}
     signed = {
         id(body)
@@ -478,6 +477,8 @@ def check_document(tree: Tree) -> Tree:
             if used := params(statements):
                 raise CodeError(f"{inline(statements)}: an anonymous body reads {list(used)}")
         elif node.data == "fexpr" and outside:
+            if bound := sorted(expr.params(expr.Nodes().transform(node)) & named):
+                raise expr.ExpressionError(f"{bound}: a template is bound by a call, name(1,-2)")
             if used := expr.params(expr.Nodes().transform(node)):
                 raise expr.ExpressionError(f"unbound parameters {sorted(used)}")
         for token in node.children:

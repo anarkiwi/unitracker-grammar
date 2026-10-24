@@ -39,7 +39,8 @@ meta: "meta: " _LC meta_item (_SEP meta_item)* "}"
 meta_item: META_KEY ": " text
 text: TEXT | SQUOTED | DQUOTED
 
-clock: "clock: {cycles_per_tick: " INT ", clock_hz: " INT "}"
+// the note table's words are rounded to the nearest unless the clock says floor
+clock: "clock: {cycles_per_tick: " INT ", clock_hz: " INT (", rounding: " ROUNDING)? "}"
 voices: "voices: " INT
 tempo: "tempo: " (INT | "[" INT ", " INT "]")
 
@@ -186,6 +187,7 @@ code_mem: (NAME | TABLE_BYTE) OFFSET? INDEX?
 // ---- terminals --------------------------------------------------------------------------
 
 META_KEY: "title" | "author" | "released"
+ROUNDING: "floor"
 CELL: "freq" | "pw" | "cut"
 PHASE: "events" | "ctrl" | "pulse" | "filter" | "freq" | "pw" | "cut" | "read"
 HOLD_EVENT: /(?:step|last|read|note|legato)(?:-[1-9]\d*)?|row(?:\.[a-z]+)?/

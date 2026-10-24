@@ -302,6 +302,7 @@ CHECKED = (
     "old, new, error",
     [
         ("!freq:'v + 1'", "!freq:'v + q'", r"unbound parameters \['q'\]"),
+        ("!freq:'v + 1'", "!freq:'v + f'", "a template is bound by a call"),
         ("asm{lda Fo.lo;", "asm{lda #a; lda Fo.lo;", r"anonymous body reads \['a'\]"),
         ("asm{lda Fo.lo;", "asm{lda Gx.lo;", "unknown table 'Gx'"),
         ("+ Fo[phi]", "+ Gx[phi]", "unknown table 'Gx'"),

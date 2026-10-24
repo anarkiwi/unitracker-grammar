@@ -880,3 +880,39 @@ def test_other_top_level_definition_spellings_are_refused(old, new):
     text = text.replace("mod:\n  walk(s): v + s\nrestart:", "restart:") if "mod" in new else text
     with pytest.raises(CanonicalError):
         parse(text)
+
+
+def test_the_note_table_rounds_to_the_nearest_word_or_down():
+    """``round`` (the default) and ``floor`` differ where the fraction is a half or more, and
+    the table stops at the same overflow."""
+    exact = [440 * 2 ** ((k - 57) / 12) * 2**24 / 985240 for k in range(95)]
+    assert table(985240, "floor") == [int(x) for x in exact]
+    assert table(985240) == [round(x) for x in exact]
+    assert frequency(57, 985240, "floor") == 7492 and frequency(57, 985240) == 7493
+    assert frequency(-1, rounding="floor") == 0 == frequency(95, 985240, "floor")
+
+
+@pytest.mark.parametrize(
+    "line, clock",
+    [
+        (
+            "clock: {cycles_per_tick: 19656, clock_hz: 985240, rounding: floor}\n",
+            (19656, 985240, "floor"),
+        ),
+        ("clock: {cycles_per_tick: 19656, clock_hz: 985240}\n", (19656, 985240)),
+    ],
+)
+def test_the_clock_line_names_floor_rounding_and_leaves_round_out(line, clock):
+    text = doc(line)
+    assert read(text).header.clock == clock and printed(read(text)) == text
+    assert line in text
+
+
+def test_round_rounding_is_left_out_and_another_is_refused():
+    from unitracker_grammar.document import Header  # pylint: disable=import-outside-toplevel
+
+    assert Header(clock=(1, 2, "round")).clock == (1, 2)
+    with pytest.raises(ValueError):
+        Header(clock=(1, 2, "ceil"))
+    with pytest.raises(CanonicalError):
+        parse(doc("clock: {cycles_per_tick: 1, clock_hz: 2, rounding: round}\n"))

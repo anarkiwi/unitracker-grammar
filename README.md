@@ -10,7 +10,9 @@ code, phrases and the tables they index. Its only constants are the note table a
 the header defaults (PAL clock, 3 voices, tempo 6). The grammar is format 2.1's, and refuses
 every other version.
 
-After `meta`, each optional and in this order: `clock`, `voices`, `tempo`; `slots`, per cell
+After `meta`, each optional and in this order: `clock` (`{cycles_per_tick: C, clock_hz: H}`,
+and `rounding: floor` where the note table's words are rounded down rather than to the nearest),
+`voices`, `tempo`; `slots`, per cell
 its modulator slots in firing order, each with its default binding and the events it holds and
 resets on (`slots: {freq: {wave: {mod: note(), reset: [row.note]}, tick: {hold: [step-1, row]}}}`);
 `order`, the phases of a tick (`order: [events, ctrl, pulse, filter, freq, pw, cut, read]`);
@@ -60,6 +62,7 @@ from unitracker_grammar import parse, CanonicalError, frequency, table
 tree = parse(text)        # a checked lark.Tree, or CanonicalError naming the line and column
 frequency(57)             # F(57): A4 at the PAL clock
 table(clock_hz=1022727)   # F(k) for every note whose word fits, from C0, at NTSC
+frequency(57, 985240, "floor")  # F(k) = R(440 * 2**((k - 57)/12) * 2**24 / clock_hz), R round or floor
 ```
 
 `parse` also checks what the grammar cannot say (`code.check_document`): templates, state
@@ -113,7 +116,7 @@ its cell's state are set, A, X, Y and the flags (but I) are 0, and the routine r
 on an empty stack, within 4096 instructions; `v` wrapped to the cell's width is its value and the
 state is stored back. A symbol that is none of these, or a state variable of another cell, is
 refused when the template is bound. `F.lo` / `F.hi` are the note table's bytes, entry k those
-of `frequency(k, clock_hz)` for k 0-255.
+of `frequency(k, clock_hz, rounding)` for k 0-255.
 
 ```python
 code.signature("vib(l, c, s)")            # ('vib', ('l', 'c', 's')), CodeError on a repeat
@@ -170,7 +173,7 @@ doc = replace(doc, loop=None)                                # edits are datacla
 | class | holds |
 |---|---|
 | `Document(header, tables, mods, defs, init, rows, loop)` | `tables` `{name: ints}`; `mods` the templates `(signature, Expr \| Code)`; `defs` the `restart`, `ins`, `ctrl`, `pw`, `filter` and `phrase` sections in that order (`Section`s, or `{kind: [(name, value)]}`); `init` events or None; `rows` SongRows (or play entry lists); `loop` the row it loops to, None for `end` |
-| `Header(meta, clock, voices, tempo, slots, order, state, regs)` | each line, None where not written (the version line is always `VERSION`, `"2.1"`); `meta` texts as written (`"'A, B'"` quoted); `slots` `{cell: [Slot]}`, `state` `{cell: [(name, size)]}`; `slot(cell)` its Slots |
+| `Header(meta, clock, voices, tempo, slots, order, state, regs)` | each line, None where not written (the version line is always `VERSION`, `"2.1"`); `clock` `(cycles_per_tick, clock_hz)`, or with `"floor"` third; `meta` texts as written (`"'A, B'"` quoted); `slots` `{cell: [Slot]}`, `state` `{cell: [(name, size)]}`; `slot(cell)` its Slots |
 | `Slot(name, mod, hold, reset)` | a slot's default binding and its events (`"note-1"`, `"row.freq"`) |
 | `SongRow(play)` | play entries (`Play(phrase, transpose)`, `"~"`, `"end"`; a phrase is a name or inline events) |
 | `Section(kind, records)` | `(name, value)` records of one kind; a template's name is its `signature` (`arp(a, b)`), its rows reading parameters as strings (`ad: "a"`, `note: "+a"`, `Call("walk", ("b",))`); a `pw` or `filter` record `Program([{"pw": b}])` (`cut` for `filter`) is stored as `b` |

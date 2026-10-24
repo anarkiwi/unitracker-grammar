@@ -261,7 +261,8 @@ class Slot(_Node):
 @dataclass(frozen=True)
 class Header(_Node):  # pylint: disable=too-many-instance-attributes
     """The header lines, each None (``meta`` empty) where not written; ``meta`` holds each
-    text as written, plain or quoted, ``clock`` is ``(cycles_per_tick, clock_hz)``, ``tempo``
+    text as written, plain or quoted, ``clock`` is ``(cycles_per_tick, clock_hz)`` or
+    ``(cycles_per_tick, clock_hz, "floor")`` (a ``"round"`` third is dropped), ``tempo``
     an int or ``(a, b)``, ``slots`` and ``state`` are ``(cell, ...)`` pairs and ``regs`` the 25
     registers' values before tick 0."""
 
@@ -275,6 +276,11 @@ class Header(_Node):  # pylint: disable=too-many-instance-attributes
     regs: tuple | None = None
 
     def _normal(self):
+        if self.clock is not None:
+            rounding = tuple(set(self.clock[2:]) - {"round"})
+            if not set(rounding) <= {"floor"}:
+                raise ValueError(f"clock: rounding {rounding} is not round or floor")
+            _set(self, "clock", tuple(self.clock[:2]) + rounding)
         if self.regs is not None:
             _set(self, "regs", tuple(self.regs))
         for name in ("slots", "state"):
@@ -431,7 +437,7 @@ class _ToModel(Transformer):
 
     @staticmethod
     def clock(children):
-        return ("clock", tuple(int(c) for c in children))
+        return ("clock", tuple(int(c) if c.type == "INT" else str(c) for c in children))
 
     @staticmethod
     def voices(children):
@@ -749,7 +755,10 @@ def _header(head: Header) -> list:
     meta = _map((k, [v]) for k, v in head.meta)
     lines = [f"unitracker: {VERSION}\n", _line("meta: ", [meta], 0)]
     if head.clock is not None:
-        lines.append(f"clock: {{cycles_per_tick: {head.clock[0]}, clock_hz: {head.clock[1]}}}\n")
+        rounding = "".join(f", rounding: {r}" for r in head.clock[2:])
+        lines.append(
+            f"clock: {{cycles_per_tick: {head.clock[0]}, clock_hz: {head.clock[1]}{rounding}}}\n"
+        )
     if head.voices is not None:
         lines.append(f"voices: {head.voices}\n")
     if head.tempo is not None:
