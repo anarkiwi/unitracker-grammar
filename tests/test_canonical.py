@@ -791,6 +791,11 @@ def test_a_definition_stands_inline_where_its_name_does():
         if isinstance(f, Tree) and f.data == "fexpr"
     ]
     assert sorted(commands) == ["2*v", "F(N) + 2", "min(3, v) + 1", "v + 1"]
+    slots = parse(doc("", "slots: {pw: {a: {mod: asm{rts}}, b: {mod: 'v + 1', hold: [step]}}}\n"))
+    assert [c.data for n in slots.find_data("slot_mod") for c in n.children[:1]] == [
+        "asm",
+        "fexpr",
+    ]
 
 
 @pytest.mark.parametrize(

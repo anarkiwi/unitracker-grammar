@@ -30,7 +30,7 @@ program after its kind in `run:` and `!run:` (`run: pw[{pw: 5}, end]`, `!run:ctr
 end]`), an instrument after an event's note (`C4.{ad: 9, sr: 240}`), a phrase with its transpose
 in a play entry (`play: [[C4, -*3]+2, ~]`) and, wherever a cell is bound, an anonymous code
 body on one line (`asm{lda v; up:; adc #1; sta v; bne up; rts}`, statements separated by `; `);
-a command also binds a quoted expression (`!pw:'v + 40'`). Format 1.21's
+a command and a slot's default also bind a quoted expression (`!pw:'v + 40'`). Format 1.21's
 `hold` line names, per cell, the events its modulators hold on (unitracker-player's
 [semantics](https://github.com/anarkiwi/unitracker-player/blob/main/docs/semantics.md)).
 

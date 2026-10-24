@@ -25,8 +25,8 @@
 // A definition may stand inline at its use in place of its name: a program in run: and !run:
 // after its kind (ctrl[...], pw[...], filter[...]), an instrument after an event's note
 // (C4.{ad: 9}), a phrase in a play entry ([C4, -]+2), and, where a cell is bound, an anonymous
-// code body on one line (asm{lda v; sta v+1; rts}); a command also binds a quoted expression
-// ('v + 40').
+// code body on one line (asm{lda v; sta v+1; rts}); a command and a slot's default also bind a
+// quoted expression ('v + 40').
 
 start: "unitracker: " VERSION _NL meta _NL (clock _NL)? (voices _NL)? (tempo _NL)? (hold _NL)? (slots _NL)? (order _NL)? (state _NL)? tables? mods? (init _NL)? "song:" _NL row+ ending
 
@@ -51,7 +51,7 @@ events: _LB HOLD_EVENT (_SEP HOLD_EVENT)* "]"
 slots: "slots: " _LC slot_cell (_SEP slot_cell)* "}"
 slot_cell: CELL ": " _LC slot (_SEP slot)* "}"
 slot: NAME ": " _LC slot_mod? "}"
-slot_mod: "mod: " (NAME | CALL) (_SEP slot_hold)? | slot_hold
+slot_mod: "mod: " (NAME | CALL | asm | qexpr) (_SEP slot_hold)? | slot_hold
 slot_hold: "hold: " events (_SEP slot_reset)? | slot_reset
 slot_reset: "reset: " events
 
