@@ -18,7 +18,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - run: pip install ".[dev]"
-      - run: black --check src tests
-      - run: pylint src
+      - run: black --check src tests tools
+      - run: pylint src tools
       - run: pylint --disable=missing-function-docstring tests
-      - run: pytest --cov=unitracker_grammar --cov-fail-under=85
+      - run: pytest -n auto --cov=unitracker_grammar --cov-fail-under=85

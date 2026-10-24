@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "unitracker-grammar"
-version = "0.10.0"
+version = "0.11.0"
 description = "The canonical unitracker document as a Lark grammar, with its note table and modulator expression language"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -14,7 +14,7 @@ classifiers = ["Operating System :: POSIX :: Linux", "Programming Language :: Py
 dependencies = ["jennings>=0.2", "lark>=1.2"]
 
 [project.optional-dependencies]
-dev = ["black>=24", "pylint>=3", "pytest>=7", "pytest-cov>=4", "pytest-xdist>=3", "pyyaml>=6"]
+dev = ["black>=24", "pylint>=3", "pytest>=7", "pytest-cov>=4", "pytest-xdist>=3", "pyyaml>=6", "tqdm>=4"]
 
 [project.urls]
 Homepage = "https://github.com/anarkiwi/unitracker-grammar"

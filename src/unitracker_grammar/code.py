@@ -1,4 +1,4 @@
-"""Code templates (format 1.23): NMOS 6502 routines a ``mod:`` record may be, read and checked.
+"""Code templates: NMOS 6502 routines a ``mod:`` record may be, read and checked.
 
 A routine is a tuple of statements, each a :class:`Label` or an :class:`Op`, whose operand is
 ``None`` (implied), an :class:`Imm`, a :class:`Mem` or, for a branch or ``jmp``, a label's name;
@@ -44,7 +44,7 @@ LEGAL = frozenset(
     if opcode not in ILLEGAL_OPCODES and how in _MODES and name.lower() not in EXCLUDED
 )
 MNEMONICS = frozenset(m for m, _ in LEGAL)
-_INDENT = " " * 10
+_INDENT = " " * 4
 
 
 class CodeError(ValueError):
@@ -167,9 +167,7 @@ class Statements(Transformer):
 
     def code_imm(self, children):
         *byte, value = children
-        return Imm(
-            int(value) if value.type == "IMM_INT" else str(value), str(byte[0]) if byte else ""
-        )
+        return Imm(int(value) if value.type == "INT" else str(value), str(byte[0]) if byte else "")
 
     def code_mem(self, children):
         parts = {t.type: str(t) for t in children[1:]}
@@ -303,15 +301,11 @@ def state(tree: Tree) -> dict[str, tuple[tuple[str, int], ...]]:
     return cells
 
 
-def _records(tree: Tree):
-    """``(key, body)`` of each template of a document parse tree, in its rows' ``mod`` sections
-    and its top-level one: the key a NAME or SIGNATURE token, the body a ``code`` or ``expr``
-    tree."""
-    for node in tree.iter_subtrees_topdown():
-        if node.data in ("section", "mods"):
-            for key, body in zip(node.children, node.children[1:]):
-                if isinstance(key, Token) and key.type in ("NAME", "SIGNATURE"):
-                    yield key, body
+def _records(tree: Tree, kind: str = "mod"):
+    """``(key, body)`` of each record of a document parse tree's ``kind`` section: a template's
+    key a SIGNATURE token and its body a ``code`` or ``expr`` tree."""
+    for node in tree.find_data(f"def_{kind}"):
+        yield from zip(node.children[::2], node.children[1::2])
 
 
 def templates(tree: Tree) -> dict[str, tuple]:
@@ -322,8 +316,7 @@ def templates(tree: Tree) -> dict[str, tuple]:
     for key, body in _records(tree):
         if body.data == "code":
             statements = check(Statements().transform(body), names)
-            name = declare(key, params(statements), names)[0] if key.type == "SIGNATURE" else key
-            out[str(name)] = statements
+            out[declare(key, params(statements), names)[0]] = statements
     return out
 
 
@@ -332,9 +325,7 @@ def signatures(tree: Tree) -> dict[str, tuple[str, ...]]:
     signature, checked as :func:`declare` checks them (an expression's parameters are its
     :func:`~unitracker_grammar.expr.params`)."""
     names = {n for variables in state(tree).values() for n, _ in variables}
-    return dict(
-        declare(key, reads(body), names) for key, body in _records(tree) if key.type == "SIGNATURE"
-    )
+    return dict(declare(key, reads(body), names) for key, body in _records(tree))
 
 
 def reads(body: Tree) -> tuple[str, ...]:
@@ -345,9 +336,6 @@ def reads(body: Tree) -> tuple[str, ...]:
 
 
 PROGRAM_KINDS = ("restart", "ctrl", "pw", "filter")
-_PROGRAM_KEYS = {k.upper(): k for k in PROGRAM_KINDS} | {
-    f"{k.upper()}_SIG": k for k in PROGRAM_KINDS
-}
 
 
 def _reads(node: Tree, out: list, skip=frozenset(), declared=None) -> list:
@@ -395,21 +383,19 @@ def programs(tree: Tree) -> dict[str, tuple[str, tuple[str, ...]]]:
     none, nothing outside a program's records reads one, and no two templates, of programs or
     modulators, share a name."""
     out, bodies = {}, set()
-    for node in tree.find_data("section"):
-        for key, body in zip(node.children, node.children[1:]):
-            if not (isinstance(key, Token) and key.type in _PROGRAM_KEYS):
-                continue
+    for kind in PROGRAM_KINDS:
+        for key, body in _records(tree, kind):
             bodies.add(id(body))
-            if key.type.endswith("_SIG"):
+            if key.type == "PROGRAM_SIG":
                 name, declared = declare(key, program_reads(body, signature(key)[1]))
                 if name in out:
                     raise CodeError(f"program template {name} is defined twice")
-                out[name] = (_PROGRAM_KEYS[key.type], declared)
+                out[name] = (kind, declared)
             elif used := program_reads(body):
                 raise CodeError(f"{key}: reads {list(used)} and declares no parameter")
     if outside := _reads(tree, [], bodies):
         raise CodeError(f"parameters {list(dict.fromkeys(outside))} read outside a template")
-    mods = {_CALL.fullmatch(k).group(1) if "(" in k else str(k) for k, _ in _records(tree)}
+    mods = {signature(key)[0] for key, _ in _records(tree)}
     if clash := sorted(out.keys() & mods):
         raise CodeError(f"{clash} name both a program and a modulator template")
     return out

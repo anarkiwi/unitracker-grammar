@@ -3,7 +3,7 @@
 import re
 
 import pytest
-from lark import Token
+from lark import Tree
 
 from test_canonical import PROGRAMS
 from test_canonical import canonical as one_text
@@ -43,10 +43,11 @@ VIB = (
 
 
 def document(head: str, block: str) -> str:
-    body = "".join(f"          {s}\n" for s in block[:-1].split("\n"))
+    """A document of the header lines ``head`` and a template ``vib(c, p)`` of ``block``."""
+    body = "".join(f"    {s}\n" for s in block[:-1].split("\n"))
     return (
-        f"unitracker: 1.23\nmeta: {{title: T}}\n{head}song:\n  - def:\n      mod:\n"
-        f"        vib: |\n{body}        porta: v + s\n      x:\n        x1: vib {{c: 3, p: 9}}\n"
+        f"unitracker: 2.0\nmeta: {{title: T}}\n{head}mod:\n  vib(c, p): |\n{body}"
+        "  porta(s): v + s\nins:\n  i1: {freq: vib(3,9)}\nsong:\n  - def:\n"
         "      phrase:\n        p1: [C4.i1]\n    play: [p1]\n  - end\n"
     )
 
@@ -209,14 +210,13 @@ def test_a_signature_declares_the_parameters_the_body_reads():
 
 
 TOP = (
-    "unitracker: 1.23\nmeta: {title: T}\nstate: {freq: {t: 1}}\nmod:\n  walk(s): v + s*n\n"
+    "unitracker: 2.0\nmeta: {title: T}\nstate: {freq: {t: 1}}\nmod:\n  walk(s): v + s*n\n"
     "  note(): F(N)\n  vib(c, p): |\n    lda t\n    cmp #c\n    lda #>p\n    lda F.lo,x\n"
-    "    rts\nsong:\n  - def:\n      mod:\n        add(d): |\n          adc #d\n          rts\n"
-    "        old: v\n      phrase:\n        p1: [C4]\n    play: [p1]\n  - end\n"
+    "    rts\n  add(d): |\n    adc #d\n    rts\nsong:\n  - play: [p1]\n  - end\n"
 )
 
 
-def test_a_document_s_signatures_and_templates_are_in_its_rows_and_its_mod_section():
+def test_a_document_s_signatures_and_templates_are_in_its_mod_section():
     tree = parse(TOP)
     assert signatures(tree) == {"walk": ("s",), "note": (), "vib": ("c", "p"), "add": ("d",)}
     assert set(templates(tree)) == {"vib", "add"}
@@ -250,9 +250,9 @@ def test_a_document_s_program_templates_are_their_kinds_and_parameters():
     }
     bodies = {
         str(k): b
-        for s in tree.find_data("section")
-        for k, b in zip(s.children, s.children[1:])
-        if isinstance(k, Token)
+        for s in tree.children
+        if isinstance(s, Tree) and s.data.startswith("def_")
+        for k, b in zip(s.children[::2], s.children[1::2])
     }
     assert program_reads(bodies["arp(a, b)"]) == ("a", "b")
     assert program_reads(bodies["fl(c)"], ("c",)) == ("c",)
@@ -268,7 +268,7 @@ def test_a_document_s_program_templates_are_their_kinds_and_parameters():
         ("route: 3,", "route: m,", r"c1: reads \['m'\] and declares no parameter"),
         ("pw1: pt(4)", "pw1: pt(q)", r"pw1: reads \['q'\]"),
         ("ctrl: arp(7,-4)", "ctrl: arp(7,z)", r"parameters \['z'\] read outside a template"),
-        ("!run:ctrl:arp(1,2)", "!run:ctrl:arp(1,y)", r"\['y'\] read outside"),
+        ("!run:arp(1,2)", "!run:arp(1,y)", r"\['y'\] read outside"),
         ("{pw: walk(b)}", "{pw: 2*b}", "2\\*b: a parameter is a whole cell value"),
         ("run: fl(a)}", "run: ctrl[{ctrl: a}, end]}", "an inline program reads no parameter, a"),
         ("fl(c): c", "arp(c): c", "program template arp is defined twice"),

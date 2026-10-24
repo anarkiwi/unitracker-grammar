@@ -17,17 +17,20 @@ from unitracker_grammar import (
     table,
 )
 
-HEADER = "unitracker: 1.21\nmeta: {title: T, author: A}\n"
-INS = "      ins:\n        i1: "
+HEADER = "unitracker: 2.0\nmeta: {title: T, author: A}\n"
+INS = "ins:\n  i1: "
 
 
 def doc(
-    defs: str, head: str = "", play: str = "[p1, p1, p1]", ending: str = "  - {loop: 0}"
+    top: str = "",
+    phrases: str = "",
+    play: str = "[p1, p1, p1]",
+    ending: str = "  - {loop: 0}",
 ) -> str:
-    """A document of one row defining ``defs`` and phrase ``p1``, in its one canonical text
-    where it is in the grammar."""
-    phrase = "      phrase:\n        p1: [C4.i1, -*3]\n"
-    return canonical(f"{HEADER}{head}song:\n  - def:\n{defs}{phrase}    play: {play}\n{ending}\n")
+    """A document of the lines ``top`` between its meta and its song, and one row defining
+    phrase ``p1`` and ``phrases``, in its one canonical text where it is in the grammar."""
+    phrase = f"      phrase:\n        p1: [C4.i1, -*3]\n{phrases}"
+    return canonical(f"{HEADER}{top}song:\n  - def:\n{phrase}    play: {play}\n{ending}\n")
 
 
 def canonical(text: str) -> str:
@@ -58,67 +61,42 @@ def first(tree: Tree, data: str) -> Tree:
     return next(tree.find_data(data))
 
 
+def keys(tree: Tree) -> list:
+    """A section's children in order: each key token's text, each value's rule name."""
+    return [str(c) if isinstance(c, Token) else c.data for c in tree.children]
+
+
+WRAP = "(F(N) < (v + F(N)) % 65536)*(v - 263) + 767*(v % 32768 < 1)"
 CASES = [
-    INS + "{ad: 1, sr: 2, ctrl: [{ctrl: 65, note: +0}, {wait: 2, ctrl: 17, note: C5}, {loop: 1}],"
-    " pw: 2048, restart: r1}\n      restart:\n"
-    "        r1: [{hold: 2, gate: 0, ad: 15, sr: 0}, {ctrl: 9}, end]\n",
+    ("restart:\n  r1: [{hold: 2, gate: 0, ad: 15, sr: 0}, {ctrl: 9}, end]\n" + INS)
+    + "{ad: 1, sr: 2, ctrl: [{ctrl: 65, note: +0}, {wait: 2, ctrl: 17, note: C5}, {loop: 1}],"
+    " pw: 2048, restart: r1}\n",
     INS + "{filter: [{cut: '-12*min(1, max(0, φ - 5)) + 512', res: 15, route: +, mode: 16},"
     " {hold: 5}, {}, {loop: 2}]}\n",
-    "      x:\n        x1: (F(N) < (v + F(N)) % 65536)*(v - 263) + 767*(v % 32768 < 1)\n"
-    + INS
-    + "{pw: 16*abs((φ - 32) % 128 - 64) + 512, freq: v - 139}\n",
-    INS + "{ctrl: c1, filter: f1}\n      ctrl:\n        c1: [{ctrl: 129^8, note: G#5}, end]\n"
-    "      filter:\n        f1: 1024\n"
-    "      pw:\n        pw1: [{pw: none}, {run: c1}, {filter: none}, end]\n",
-    INS + "{pw: 95*φ\n            + 296, restart: [{hold: 3, ctrl: ^8, gate: 0}, {},\n"
-    "            end]}\n",
-    INS + "{ad: 1, sr: 2, mod: ramp}\n",
-    INS + "{ad: 1, sr: 2, mod: ramp {step: 2, skip: [1, 3]}}\n",
-    INS + "{ad: 1, mod: set {detune: 1, offset: -2}}\n",
-    INS + "{ad: 1, sr: 2, freq: v - 3, mod: ramp {step: 2}}\n",
-    INS + "{ad: 1, mod: set {detune: 1}}\n      phrase:\n"
-    "        p2: [C4.i1!freq:-4!set step 4!set offset 1, -*3]\n",
-    INS + "{ad: 1}\n      phrase:\n"
-    "        p2: [C4.i1!run:c1!ad:1!sr:2!ctrl:65!resfilt:15/1!mode:16!vol:15!cut:x1!tempo:6/7"
-    "!vtempo:8!freq:x1!legato!pw!filter*2, -!pw:none!filter:none, -!freq:hold,\n"
-    "          off!cut:80, on!freq:none, B-1!freq:-139, C10!pw:256, -!pw:x1!cut:512]\n",
+    f"mod:\n  wrap(): {WRAP}\n" + INS + "{pw: 16*abs((φ - 32) % 128 - 64) + 512, freq: v - 139}\n",
+    INS + "{ctrl: c1, filter: f1}\nctrl:\n  c1: [{ctrl: 129^8, note: G#5}, end]\n"
+    "pw:\n  pw1: [{pw: none}, {run: c1}, end]\nfilter:\n  f1: 1024\n",
+    INS + "{pw: 95*φ\n    + 296, restart: [{hold: 3, ctrl: ^8, gate: 0}, {},\n    end]}\n",
 ]
+COMMANDS = (
+    "        p2: [C4.i1!run:c1!ad:1!sr:2!ctrl:65!resfilt:15/1!mode:16!vol:15!cut:wrap()!tempo:6/7"
+    "!vtempo:8!freq:wrap()!legato!pw!filter*2, -!pw:none!cut:none!filter, -!freq:hold,\n"
+    "          off!cut:80, on!freq:none, B-1!freq:-139, C10!pw:256, -!pw:wrap()!cut:512]\n"
+)
 
 
-REFUSED = [
-    (doc(INS + "{sr: 2, ad: 1}\n"), "line 6"),
-    (doc(INS + "{ctrl: [{note: C4, ctrl: 65}, end]}\n"), "line 6"),
-    (doc("      ins:\n       i1: {ad: 1}\n"), "line 6"),
-    (doc("      phrase:\n        p2: [C4!legato!freq:x1]\n"), "line 6"),
-    (doc("      phrase:\n        p2: [C4 .i1]\n"), "line 6"),
-    (doc(INS + "{pw: v+1}\n"), "line 6"),
-    (doc(INS + "{ad: 1, mod: ramp {}}\n"), "line 6"),
-    (doc(INS + "{ad: 1, mod: 4}\n"), "line 6"),
-    (doc(INS + "{ad: 1, mod: ramp {step 2}}\n"), "line 6"),
-    (doc("      phrase:\n        p2: [C4.i1!set step]\n"), "line 6"),
-    (doc("      vinit:\n        0: {pw: 256}\n"), "line 5"),
-    (doc(INS + "{ad: 1}\n", ending="  - loop: 0"), "line 10"),
-    (HEADER.replace("meta", "title") + "song:\n  - end\n", "line 2"),
-    (
-        HEADER.replace("meta", "playroutine: {ref: goattracker2}\nmeta") + "song:\n  - end\n",
-        "line 2",
-    ),
-    (doc(INS + "{ad: 1}\n", "tables:\n  ftab: [1, 2]\n"), "line 4"),
-]
-
-
-@pytest.mark.parametrize("defs", CASES)
-def test_each_form_of_the_vocabulary_parses(defs):
+@pytest.mark.parametrize("top, phrases", [(t, "") for t in CASES] + [(INS + "{ad: 1}\n", COMMANDS)])
+def test_each_form_of_the_vocabulary_parses(top, phrases):
     """Rows, instruments, programs, expressions, wraps and every command shape."""
-    tree = parse(doc(defs))
+    tree = parse(doc(top, phrases))
     assert tree.data == "start"
     assert [str(t) for t in first(tree, "plays").scan_values(lambda v: True)] == ["p1"] * 3
 
 
 def test_the_commands_are_one_chain_in_vocabulary_order():
     """An event's commands nest in the vocabulary's order, each with its arguments."""
-    tree = parse(doc(CASES[-1]))
-    event = first(first(tree, "phrase"), "event")
+    tree = parse(doc(INS + "{ad: 1}\n", COMMANDS))
+    event = list(first(tree, "def_phrase").find_data("event"))[2]
     assert [str(c) for c in event.children if isinstance(c, Token)] == ["C4", "i1", "2"]
     assert chain(event, "cmd_") == [
         ("cmd_run", ["c1"]),
@@ -128,10 +106,10 @@ def test_the_commands_are_one_chain_in_vocabulary_order():
         ("cmd_resfilt", ["15", "1"]),
         ("cmd_mode", ["16"]),
         ("cmd_vol", ["15"]),
-        ("cmd_cut", ["!cut:", "x1"]),
+        ("cmd_cut", ["!cut:", "wrap()"]),
         ("cmd_tempo", ["6", "7"]),
         ("cmd_vtempo", ["8"]),
-        ("cmd_freq", ["!freq:", "x1"]),
+        ("cmd_freq", ["!freq:", "wrap()"]),
         ("cmd_legato", ["!legato"]),
     ]
 
@@ -139,12 +117,12 @@ def test_the_commands_are_one_chain_in_vocabulary_order():
 def test_a_program_is_its_rows_in_order():
     """Each program row is a chain of its keys in the vocabulary's order."""
     tree = parse(doc(CASES[0]))
-    rows = list(first(tree, "program").find_data("row_"))
-    assert [chain(row, "row_") for row in rows] == [
+    program = first(first(tree, "def_ins"), "program")
+    assert [chain(row, "row_") for row in program.find_data("row_")] == [
         [("row_ctrl", ["65"]), ("row_note", ["+0"])],
         [("row_wait", ["2"]), ("row_ctrl", ["17"]), ("row_note", ["C5"])],
     ]
-    assert str(first(tree, "program").children[-1]) == "1"
+    assert str(program.children[-1]) == "1"
 
 
 @pytest.mark.parametrize("cell", ["freq", "pw", "cut"])
@@ -153,13 +131,10 @@ def test_each_modulated_cell_takes_none_and_hold_as_a_row_key_and_a_command(cell
     """``none`` and ``hold`` are one keyword each, the same for freq, pw and cut, in a program
     row and in a command."""
     tree = parse(
-        doc(
-            INS + f"{{ctrl: [{{{cell}: {stop}}}, end]}}\n      phrase:\n"
-            f"        p2: [C4.i1!{cell}:{stop}]\n"
-        )
+        doc(INS + f"{{ctrl: [{{{cell}: {stop}}}, end]}}\n", f"        p2: [C4.i1!{cell}:{stop}]\n")
     )
     row = first(first(tree, f"row_{cell}"), "cell_value")
-    command = next(n for n in tree.iter_subtrees_topdown() if n.data == f"cmd_{cell}")
+    command = next(n for n in tree.find_data(f"cmd_{cell}") if isinstance(n.children[0], Token))
     assert [(t.type, str(t)) for t in row.children] == [(stop.upper(), stop)]
     assert [(t.type, str(t)) for t in command.children if isinstance(t, Token)] == [
         (f"CMD_{cell.upper()}", f"!{cell}:"),
@@ -167,51 +142,20 @@ def test_each_modulated_cell_takes_none_and_hold_as_a_row_key_and_a_command(cell
     ]
 
 
-def test_a_modulator_is_its_shape_and_its_bag():
-    """The instrument's ``mod:`` is its shape's name and its parameter bag, in the bag's order."""
-    tree = parse(doc(INS + "{ad: 1, sr: 2, mod: ramp {step: 2, skip: [1, 3]}}\n"))
-    fn = first(tree, "ins_fn")
-    assert str(fn.children[0]) == "ramp"
-    assert [str(v) for v in fn.scan_values(lambda v: True)] == [
-        "ramp",
-        "step",
-        "2",
-        "skip",
-        "1",
-        "3",
-    ]
-    assert [str(c) for c in first(tree, "ins_ad").children if isinstance(c, Token)] == ["1"]
-
-
-def test_a_note_set_is_its_writes_in_order():
-    """A note's ``!set`` writes name-value pairs in the order they come."""
-    tree = parse(
-        doc(
-            INS + "{ad: 1, mod: set {detune: 1}}\n      phrase:\n"
-            "        p2: [C4.i1!freq:-4!set step 4!set offset 1, -*3]\n"
-        )
-    )
-    event = first(first(tree, "phrase"), "event")
-    assert chain(event, "cmd_")[-2:] == [
-        ("cmd_freq", ["!freq:", "-4"]),
-        ("cmd_set", ["step", "4", "offset", "1"]),
-    ]
-
-
 def test_the_header_forms_parse():
-    """Clock, voices, a swing tempo, the document's tables and the init row."""
-    head = (
+    """Clock, voices, a swing tempo, the document's tables, the init row and transposes."""
+    top = (
         "clock: {cycles_per_tick: 17095, clock_hz: 1022727}\nvoices: 3\ntempo: [6, 7]\n"
-        "tables:\n  W: [1, 2, 3]\n  Por: [922, 967,\n    3178]\n"
-        "init: [E2!pw:256!cut:x1!freq:-139!legato, -!pw:2048, -]\n"
+        "tables:\n  W: [1, 2, 3]\n  Por: [922, 967,\n    3178]\n" + INS + "{ad: 1}\n"
+        "init: [E2!pw:256!cut:walk(1)!freq:-139!legato, -!pw:2048, -]\n"
     )
-    tree = parse(doc("      ins:\n        i1: {ad: 1}\n", head, ending="  - end"))
+    tree = parse(doc(top, ending="  - end"))
     init = first(tree, "init")
     assert [str(e.children[0]) for e in init.children] == ["E2", "-", "-"]
     assert [chain(e, "cmd_") for e in init.children] == [
         [
             ("cmd_pw", ["!pw:", "256"]),
-            ("cmd_cut", ["!cut:", "x1"]),
+            ("cmd_cut", ["!cut:", "walk(1)"]),
             ("cmd_freq", ["!freq:", "-139"]),
             ("cmd_legato", ["!legato"]),
         ],
@@ -225,7 +169,7 @@ def test_the_header_forms_parse():
         ["1", "2", "3"],
         ["922", "967", "3178"],
     ]
-    tree = parse(doc("      ins:\n        i1: {ad: 1}\n", play="[p1, p1+5, ~]"))
+    tree = parse(doc(play="[p1, p1+5, ~]"))
     assert [[str(t) for t in p.children] for p in first(tree, "plays").children] == [
         ["p1"],
         ["p1", "+5"],
@@ -233,73 +177,87 @@ def test_the_header_forms_parse():
     ]
 
 
-def test_the_hold_line_names_each_cell_s_events():
-    """``hold`` maps each cell to the voice events its modulators hold on, ``-k`` earlier."""
-    head = (
-        "tempo: 3\nhold: {freq: [step-1, row],\n  pw: [read, note-1, last-1], cut: [legato-2],"
-        " ctrl.freq: [note-1, row.note]}\n"
-    )
-    tree = parse(doc("", head))
-    cells = [[str(t) for t in c.scan_values(lambda _: True)] for c in first(tree, "hold").children]
-    assert cells == [
-        ["freq", "step-1", "row"],
-        ["pw", "read", "note-1", "last-1"],
-        ["cut", "legato-2"],
-        ["ctrl.freq", "note-1", "row.note"],
-    ]
+REFUSED = [
+    (doc(INS + "{sr: 2, ad: 1}\n"), 4, 15),
+    (doc(INS + "{ctrl: [{note: C4, ctrl: 65}, end]}\n"), 4, 26),
+    (doc("ins:\n   i1: {ad: 1}\n"), 4, 3),
+    (doc(phrases="        p2: [C4!legato!freq:1]\n"), 7, 23),
+    (doc(phrases="        p2: [C4 .i1]\n"), 7, 16),
+    (doc(INS + "{pw: v+1}\n"), 4, 13),
+    (doc("vinit:\n  0: {pw: 256}\n"), 3, 1),
+    (doc(ending="  - loop: 0"), 8, 1),
+    (HEADER.replace("meta", "title") + "song:\n  - end\n", 2, 1),
+    (HEADER.replace("meta", "playroutine: {ref: goattracker2}\nmeta") + "song:\n  - end\n", 2, 1),
+    (doc("tables:\n  ftab: [1, 2]\n"), 4, 3),
+]
+
+
+@pytest.mark.parametrize("text, line, column", REFUSED)
+def test_other_spellings_are_refused_at_their_place(text, line, column):
+    """Key order, indentation, command order, spaces in an event, operator spacing, an unknown
+    section, the song's ending, the header keys, a player's name and a lower-case table each
+    have one form or none, refused where they part from it."""
+    with pytest.raises(CanonicalError, match=rf"^line {line} column {column}: "):
+        parse(text)
+
+
+BASE = (
+    "unitracker: 2.0\nmeta: {title: T}\ntempo: 3\nslots: {pw: {a: {mod: m()}}}\n"
+    "mod:\n  m(): v + 1\n  porta(s): v + s\n"
+    "ins:\n  i1: {ad: 9, pw: m(), freq: porta(3)}\n"
+    "ctrl:\n  arp(a, b): [{ctrl: a, note: +b}, {run: arp(a,b)}, end]\n"
+    "pw:\n  pt(b): [{pw: b}, end]\n"
+    "song:\n  - def:\n      phrase:\n        p1: [C4.i1!run:arp(7,4)!freq:+3, -!cut:m()]\n"
+    "    play: [p1]\n  - end\n"
+)
 
 
 @pytest.mark.parametrize(
-    "hold",
+    "old, new",
     [
-        "{vol: [step]}",
-        "{ctrl.vol: [step]}",
-        "{pw.ctrl: [step]}",
-        "{tick.freq: [step]}",
-        "{pw: [row.note-1]}",
-        "{pw: [row.]}",
-        "{pw: [row-1]}",
-        "{pw: [step-0]}",
-        "{pw: [phrase]}",
-        "{pw: []}",
-        "{pw: [step,row]}",
+        ("unitracker: 2.0", "unitracker: 1.23"),
+        ("unitracker: 2.0", "unitracker: 2.1"),
+        ("unitracker: 2.0", "unitracker: 2"),
+        ("tempo: 3\n", "tempo: 3\nhold: {freq: [step-1, row]}\n"),
+        ("pw:\n  pt(b)", "x:\n  x1: v + 1\npw:\n  pt(b)"),
+        ("      phrase:\n", "      x:\n        x1: v + 1\n      phrase:\n"),
+        ("!freq:+3", "!freq:x1"),
+        ("freq: porta(3)}", "freq: porta {s: 3}}"),
+        ("freq: porta(3)}", "mod: ramp {step: 2}}"),
+        ("freq: porta(3)}", "mod: ramp}"),
+        ("!freq:+3", "!freq:+3!set step 4"),
+        ("-!cut:m()", "-!filter:none"),
+        ("[{pw: b}, end]", "[{pw: b}, {filter: none}, end]"),
+        ("      phrase:\n", "      ins:\n        i2: {ad: 1}\n      phrase:\n"),
+        ("      phrase:\n", "      mod:\n        n(): v\n      phrase:\n"),
+        ("      phrase:\n", "      ctrl:\n        c1: [end]\n      phrase:\n"),
+        ("  porta(s): v + s\n", "  porta: v + 1\n"),
+        ("{mod: m()}", "{mod: m}"),
+        ("{run: arp(a,b)}", "{run: ctrl:arp(a,b)}"),
+        ("!run:arp(7,4)", "!run:ctrl:arp(7,4)"),
+        ("!run:arp(7,4)", "!run:pw:pt(9)"),
+        ("ad: 9", "ad: 09"),
+        ("!freq:+3", "!freq:+03"),
     ],
 )
-def test_other_hold_spellings_are_refused(hold):
-    """A cell other than freq, pw or cut (with or without ctrl.), an offset on row, row.KEY or
-    of 0, an unknown event, an empty list and a missing space are refused."""
+def test_the_constructs_of_earlier_formats_are_refused(old, new):
+    """Any version but 2.0, the hold line, x sections and instances, parameter bags, instrument
+    shapes, !set, !filter:none and a row's filter key, a row's definitions but its phrases, a
+    template keyed by its name or named as a slot default, a run's kind before a call, and an
+    integer with a leading zero."""
+    assert old in BASE and parse(BASE)
     with pytest.raises(CanonicalError):
-        parse(doc("", f"hold: {hold}\n"))
-
-
-@pytest.mark.parametrize("text, where", REFUSED)
-def test_other_spellings_are_refused(text, where):
-    """Key order, indentation, command order, spaces in an event, operator spacing, fixed records,
-    the song's ending, the header keys, a player's name and a lower-case table each have one
-    form or none."""
-    with pytest.raises(CanonicalError, match=rf"{where} column \d+: "):
-        parse(text)
-
-
-@pytest.mark.parametrize(
-    "case, column",
-    list(zip(REFUSED, [21, 32, 1, 23, 16, 19, 32, 26, 36, 28, 1, 1, 1, 1, 3], strict=True)),
-)
-def test_a_refusal_is_at_its_place(case, column):
-    """Each refused spelling is refused at the same line and column as before the operators and
-    keywords became named terminals."""
-    text, where = case
-    with pytest.raises(CanonicalError, match=rf"^{where} column {column}: "):
-        parse(text)
+        parse(BASE.replace(old, new))
 
 
 def test_the_operators_and_keywords_are_in_the_tree():
     """The operators, keywords and keep flags are tokens of the tree, and layout is not."""
     extra = [
-        doc("      x:\n        x1: -(9 // 2)\n", play="[p1, ~, end]"),
+        doc("mod:\n  neg(): -(9 // 2)\n", play="[p1, ~, end]"),
         *(doc(INS + "{ctrl: [{route: " + r + "}, end]}\n") for r in ("+ 3", "'-'", "'- 3'")),
     ]
-    trees = [parse(doc(d)) for d in CASES] + [parse(t) for t in extra]
+    trees = [parse(doc(INS + "{ad: 1}\n", COMMANDS))] + [parse(doc(t)) for t in CASES]
+    trees += [parse(t) for t in extra]
     tokens = {(t.type, t.strip()) for tree in trees for t in tree.scan_values(lambda _: True)}
     assert {
         ("ADD", "+"),
@@ -321,7 +279,6 @@ def test_the_operators_and_keywords_are_in_the_tree():
         ("LOOP", "loop:"),
         ("NONE", "none"),
         ("HOLD", "hold"),
-        ("FILTER_NONE", "!filter:none"),
         ("LEGATO", "!legato"),
         ("KEEP_PW", "!pw"),
         ("KEEP_FILTER", "!filter"),
@@ -360,13 +317,12 @@ def test_the_note_table_is_equal_temperament_from_a4_in_words_that_fit():
 
 
 SLOTS = (
-    "slots: {freq: {wave: {mod: note, reset: [row.note, row.freq]}, tick: {hold: [step-1, row]}},"
+    "slots: {freq: {wave: {mod: note(), reset: [row.note, row.freq]}, tick: {hold: [step-1, row]}},"
     " pw: {pulse: {hold: [read, note-1, last-1]}}, cut: {filter: {}}}\n"
 )
 TEMPLATES = (
-    "      mod:\n        note: (φ < 1)*G[N % 128] + v*(φ >= 1)\n        porta: v + s\n"
-    "        walk: v*(1 - min(φ, abs_a)) + abs(a - n)\n"
-    "      x:\n        x1: porta {s: 32}\n        x2: v + n\n        x3: note\n"
+    "mod:\n  note(): (φ < 1)*G[N % 128] + v*(φ >= 1)\n  porta(s): v + s\n"
+    "  walk(d, abs_d): v*(1 - min(φ, abs_d)) + abs(d - n)\n"
 )
 
 
@@ -390,14 +346,14 @@ def slot_values(node: Tree) -> list[str]:
 def test_the_slots_line_names_each_cell_s_slots_and_their_events():
     """``slots`` maps a cell to its slots in firing order, each with its default binding and the
     events it holds and resets on, each of them left out or not."""
-    tree = parse(doc("", SLOTS))
+    tree = parse(doc(SLOTS))
     assert [
         [str(s.children[0])]
         + [(n.data, slot_values(n)) for n in s.iter_subtrees_topdown() if own(n)]
         for c in first(tree, "slots").children
         for s in c.children[1:]
     ] == [
-        ["wave", ("slot_mod", ["note"]), ("slot_reset", ["row.note", "row.freq"])],
+        ["wave", ("slot_mod", ["note()"]), ("slot_reset", ["row.note", "row.freq"])],
         ["tick", ("slot_hold", ["step-1", "row"])],
         ["pulse", ("slot_hold", ["read", "note-1", "last-1"])],
         ["filter"],
@@ -406,70 +362,54 @@ def test_the_slots_line_names_each_cell_s_slots_and_their_events():
 
 
 @pytest.mark.parametrize(
-    "head",
+    "top",
     [
         "slots: {vol: {a: {}}}\n",
+        "slots: {ctrl.freq: {a: {}}}\n",
         "slots: {freq: {}}\n",
         "slots: {freq: [a]}\n",
         "slots: {freq: {Wave: {}}}\n",
         "slots: {freq: {a: {reset: [row], hold: [step]}}}\n",
-        "slots: {freq: {a: {hold: [step], mod: x1}}}\n",
-        "slots: {freq: {a: {hold: []}}}\n",
-        "slots: {freq: {a: {}}}\nhold: {freq: [step]}\n",
+        "slots: {freq: {a: {hold: [step], mod: m()}}}\n",
+        *(
+            f"slots: {{pw: {{a: {{hold: [{events}]}}}}}}\n"
+            for events in ("", "row.note-1", "row.", "row-1", "step-0", "phrase", "step,row")
+        ),
+        "order: [read]\nslots: {freq: {a: {}}}\n",
     ],
 )
-def test_other_slots_spellings_are_refused(head):
-    """A cell other than freq, pw or cut, a cell or slot list that is empty or a list, a name that
-    is no NAME, a slot's keys out of order, an empty event list and a slots line before the hold
-    line are refused."""
+def test_other_slots_spellings_are_refused(top):
+    """A cell other than freq, pw or cut, an empty or listed cell, a name that is no NAME, a
+    slot's keys out of order, an empty event list, an offset on row, row.KEY or of 0, an unknown
+    event, a missing space and a slots line after the order line are refused."""
     with pytest.raises(CanonicalError):
-        parse(doc("", head))
+        parse(doc(top))
 
 
-def test_a_template_reads_named_parameters_and_an_instance_binds_them():
-    """A ``mod`` record is a template over lowercase parameters; an ``x`` record is an expression
-    or a template with its parameter bag."""
-    tree = parse(doc(TEMPLATES, SLOTS))
-    sections = {
-        s.children[0].type: [
-            [
-                str(t)
-                for t in ([c] if isinstance(c, Token) else c.scan_values(lambda _: True))
-                if t.type in ("NAME", "X", "PARAM", "INT")
-            ]
-            for c in s.children
-        ]
-        for s in tree.find_pred(lambda t: t.data == "section")
-        if s.children[0].type in ("NAME", "X")
-    }
-    assert sections["NAME"] == [
-        ["note"],
-        ["1", "128", "1"],
-        ["porta"],
-        ["s"],
-        ["walk"],
-        ["1", "abs_a", "a"],
-    ]
-    assert sections["X"] == [["x1"], ["porta"], ["s", "32"], ["x2"], [], ["x3"], ["note"]]
+def test_a_template_reads_named_parameters():
+    """A ``mod`` record is keyed by its signature, its expression reading its lowercase
+    parameters; a record's name is no parameter."""
+    tree = parse(doc(SLOTS + TEMPLATES))
+    mods = first(tree, "def_mod")
+    assert keys(mods) == ["note()", "expr", "porta(s)", "expr", "walk(d, abs_d)", "expr"]
+    assert {t.type for t in mods.children if isinstance(t, Token)} == {"SIGNATURE"}
+    assert [str(t) for t in tree.scan_values(lambda v: v.type == "PARAM")] == ["s", "abs_d", "d"]
+    assert {str(t) for t in tree.scan_values(lambda v: v.type == "EVENT_NOTE")} == {"n"}
     names = parse(doc(CASES[3])).scan_values(lambda v: v.type in ("FILTER", "CTRL", "PARAM"))
     assert sorted(str(t) for t in names) == ["c1", "c1", "c1", "f1", "f1"]
-    params = {str(t) for t in tree.scan_values(lambda v: v.type == "PARAM")}
-    assert params == {"s", "abs_a", "a", "porta", "note"}
-    assert {str(t) for t in tree.scan_values(lambda v: v.type == "EVENT_NOTE")} == {"n"}
 
 
 def test_a_slot_prefix_names_the_slot_a_row_field_or_command_binds():
     """A row key, an instrument field and a command of a modulated cell each take a slot prefix,
-    a cell's keys may repeat, one per slot, and a row or field binds an instance, a template
-    with or without its bag, an expression or a stop."""
+    a cell's keys may repeat, one per slot, and a row or field binds a call, an expression or a
+    stop."""
     tree = parse(
         doc(
-            TEMPLATES + INS + "{ctrl: [{pw: 1, pulse.pw: x1, filter.cut: none, wave.freq: x2,"
-            " tick.freq: porta {s: -3}}, {cut: v + 40, freq: hold}, end], pw: x1,"
-            " filter: porta {s: 1}, freq: F(n), wave.freq: note, tick.freq: none}\n"
-            "      phrase:\n        p2: [C4.i1!pw:5!pulse.pw:none!filter.cut:x1!freq:+3"
-            "!tick.freq:x1!wave.freq:hold!legato, -!pw:2!pw]\n",
-            SLOTS,
+            SLOTS + TEMPLATES + INS + "{ctrl: [{pw: 1, pulse.pw: porta(3), filter.cut: none,"
+            " wave.freq: v + n, tick.freq: porta(-3)}, {cut: v + 40, freq: hold}, end], pw: pw1,"
+            " filter: porta(1), freq: F(n), wave.freq: note(), tick.freq: none}\n",
+            "        p2: [C4.i1!pw:5!pulse.pw:none!filter.cut:porta(1)!freq:+3"
+            "!tick.freq:porta(2)!wave.freq:hold!legato, -!pw:2!pw]\n",
         )
     )
     links = [
@@ -486,7 +426,7 @@ def test_a_slot_prefix_names_the_slot_a_row_field_or_command_binds():
         if n.data.split("_")[-1] in ("pw", "cut", "filter", "freq")
         and n.data[:4] in ("row_", "ins_")
         and any(
-            isinstance(c, Token) or c.data in ("cell_value", "modulation", "fexpr", "bound")
+            isinstance(c, Token) or c.data in ("cell_value", "modulation", "fexpr")
             for c in n.children
         )
     ]
@@ -498,54 +438,52 @@ def test_a_slot_prefix_names_the_slot_a_row_field_or_command_binds():
         ("row_freq", ["tick."], ["cell_value"]),
         ("row_cut", [], ["cell_value"]),
         ("row_freq", [], ["cell_value"]),
-        ("ins_pw", ["x1"], []),
+        ("ins_pw", ["pw1"], []),
         ("ins_filter", [], ["modulation"]),
         ("ins_freq", [], ["fexpr"]),
-        ("ins_freq", ["wave."], ["fexpr"]),
+        ("ins_freq", ["wave.", "note()"], []),
         ("ins_freq", ["tick.", "none"], []),
     ]
-    events = list(first(tree, "phrase").find_data("event"))
-    assert chain(events[0], "cmd_") == [
+    events = list(first(tree, "def_phrase").find_data("event"))
+    assert chain(events[2], "cmd_") == [
         ("cmd_pw", ["!pw:", "5"]),
         ("cmd_pw", ["!pulse.pw:", "none"]),
-        ("cmd_cut", ["!filter.cut:", "x1"]),
+        ("cmd_cut", ["!filter.cut:", "porta(1)"]),
         ("cmd_freq", ["!freq:", "+3"]),
-        ("cmd_freq", ["!tick.freq:", "x1"]),
+        ("cmd_freq", ["!tick.freq:", "porta(2)"]),
         ("cmd_freq", ["!wave.freq:", "hold"]),
         ("cmd_legato", ["!legato"]),
     ]
-    assert [str(t) for t in events[1].scan_values(lambda _: True)] == ["-", "!pw:", "2", "!pw"]
+    assert [str(t) for t in events[3].scan_values(lambda _: True)] == ["-", "!pw:", "2", "!pw"]
 
 
 @pytest.mark.parametrize(
-    "defs",
+    "top, phrases",
     [
-        INS + "{ctrl: [{a.ad: 1}, end]}\n",
-        INS + "{ctrl: [{a. pw: 1}, end]}\n",
-        INS + "{ctrl: [{freq: 1, pw: 2}, end]}\n",
-        INS + "{a.ad: 1}\n",
-        "      phrase:\n        p2: [C4!a.tempo:3]\n",
-        "      phrase:\n        p2: [C4!a.pw]\n",
-        "      phrase:\n        p2: [C4!pw:porta]\n",
-        INS + "{freq: porta\n  {s: 1}}\n",
-        "      x:\n        x1: porta\n          {s: 1}\n",
-        "      mod:\n        Porta: v\n",
-        "      mod:\n        porta: x1 + v\n",
+        (INS + "{ctrl: [{a.ad: 1}, end]}\n", ""),
+        (INS + "{ctrl: [{a. pw: 1}, end]}\n", ""),
+        (INS + "{ctrl: [{freq: 1, pw: 2}, end]}\n", ""),
+        (INS + "{a.ad: 1}\n", ""),
+        ("", "        p2: [C4!a.tempo:3]\n"),
+        ("", "        p2: [C4!a.pw]\n"),
+        ("", "        p2: [C4!pw:porta]\n"),
+        ("mod:\n  Porta(s): v\n", ""),
+        ("mod:\n  porta(): pw1 + v\n", ""),
     ],
 )
-def test_a_slot_prefix_and_a_bag_are_where_a_cell_is_bound_alone(defs):
+def test_a_slot_prefix_is_where_a_cell_is_bound_alone(top, phrases):
     """A prefix on another key or command, a space after it, a cell's key out of the vocabulary
-    order, a prefixed keep flag, a template in a command, a bag on its own line, a template name
-    that is no NAME and an instance name as a parameter are refused."""
+    order, a prefixed keep flag, a template's bare name in a command, a template name that is no
+    NAME and a record's name as a parameter are refused."""
     with pytest.raises(CanonicalError):
-        parse(doc(defs, SLOTS))
+        parse(doc(SLOTS + top, phrases))
 
 
 ORDER = "order: [events, ctrl, pulse, filter, freq, pw, cut, read]\n"
 
 
 def test_the_order_line_names_the_phases_of_a_tick_after_the_slots_line():
-    tree = parse(doc("", SLOTS + ORDER))
+    tree = parse(doc(SLOTS + ORDER))
     assert [str(t) for t in first(tree, "order").children] == [
         "events",
         "ctrl",
@@ -556,30 +494,25 @@ def test_the_order_line_names_the_phases_of_a_tick_after_the_slots_line():
         "cut",
         "read",
     ]
-    assert first(parse(doc("", "order: [read]\n")), "order")
+    assert first(parse(doc("order: [read]\n")), "order")
 
 
 @pytest.mark.parametrize(
-    "head",
+    "top",
     [ORDER + SLOTS, "order: []\n", "order: [events, fetch]\n", "order: [events,ctrl]\n"],
 )
-def test_other_order_spellings_are_refused(head):
+def test_other_order_spellings_are_refused(top):
     """An order line before the slots line, an empty list, an unknown phase and a missing space
     are refused."""
     with pytest.raises(CanonicalError):
-        parse(doc("", head))
+        parse(doc(top))
 
 
 STATE = "state: {freq: {t: 1}, pw: {r: 1, q: 2}, cut: {k: 2}}\n"
-CODE = (
-    "      mod:\n        vib: |\n          lda t\n          bmi up\n          cmp #c\n"
-    "          adc #>c\n          sta G.lo+3,x\n          up:\n          rts\n"
-    "        porta: v + s\n"
-)
 
 
 def test_the_state_line_names_each_cell_s_variables_after_the_order_line():
-    tree = parse(doc("", ORDER + STATE + "tables:\n  G: [1]\n").replace("1.21", "1.23"))
+    tree = parse(doc(ORDER + STATE + "tables:\n  G: [1]\n"))
     assert [
         (n.data, [str(t) for t in n.children[0].scan_values(lambda _: True)])
         for n in first(tree, "state").iter_subtrees_topdown()
@@ -590,11 +523,11 @@ def test_the_state_line_names_each_cell_s_variables_after_the_order_line():
         ("state_pw", ["r", "1", "q", "2"]),
         ("state_cut", ["k", "2"]),
     ]
-    assert first(parse(doc("", "state: {cut: {k: 1}}\n")), "state")
+    assert first(parse(doc("state: {cut: {k: 1}}\n")), "state")
 
 
 @pytest.mark.parametrize(
-    "head",
+    "top",
     [
         STATE + ORDER,
         "state: {}\n",
@@ -610,23 +543,29 @@ def test_the_state_line_names_each_cell_s_variables_after_the_order_line():
         "tables:\n  G: [1]\n" + STATE,
     ],
 )
-def test_other_state_spellings_are_refused(head):
+def test_other_state_spellings_are_refused(top):
     """A state line before the order line or after the tables, an empty cell or line, cells out
     of order, a cell that is none, a size other than 1 or 2, a name that is no NAME or a reserved
     symbol and a missing space are refused."""
     with pytest.raises(CanonicalError):
-        parse(doc("", head))
+        parse(doc(top))
 
 
-def test_a_template_may_be_a_code_block_of_statements():
-    tree = parse(doc(CODE, STATE))
-    section = next(s for s in tree.find_data("section") if s.children[0] == "vib")
-    assert [c if isinstance(c, Token) else c.data for c in section.children] == [
-        "vib",
-        "code",
-        "porta",
-        "expr",
-    ]
+MODS = (
+    "tables:\n  G: [1]\nmod:\n  note(): (φ < 1)*F(N) + v*(φ >= 1)\n  porta(s, d): v + s - d\n"
+    "  vib(c): |\n    lda t\n    bmi up\n    cmp #c\n    adc #>c\n    sta G.lo+3,x\n"
+    "    lda F.hi,x\n    up:\n    rts\n"
+)
+
+
+def test_the_mod_section_holds_signed_templates_after_the_tables():
+    """Its records are at 2 spaces, each keyed by a signature, an expression or a code block of
+    statements at 4: the tree is a ``def_mod`` of signature tokens each before its ``expr`` or
+    ``code``."""
+    tree = parse(doc(STATE + MODS + "init: [C4]\n"))
+    mods = first(tree, "def_mod")
+    assert keys(mods) == ["note()", "expr", "porta(s, d)", "expr", "vib(c)", "code"]
+    assert {t.type for t in mods.children if isinstance(t, Token)} == {"SIGNATURE"}
     assert [
         (n.data, [str(t) for t in n.scan_values(lambda _: True)])
         for n in first(tree, "code").children
@@ -636,98 +575,54 @@ def test_a_template_may_be_a_code_block_of_statements():
         ("code_op", ["cmp", "c"]),
         ("code_op", ["adc", ">", "c"]),
         ("code_op", ["sta", "G.lo", "+3", ",x"]),
+        ("code_op", ["lda", "F.hi", ",x"]),
         ("code_label", ["up"]),
         ("code_op", ["rts"]),
     ]
 
 
 @pytest.mark.parametrize(
-    "defs",
+    "top",
     [
-        CODE.replace("          up:", "        up:"),
-        CODE.replace("          rts", "            rts"),
-        CODE.replace("vib: |", "vib: | "),
-        CODE.replace("vib: |\n", "vib: |\n\n"),
-        CODE.replace("#c", "#$c"),
-        "      x:\n        x1: |\n          rts\n",
-        "      mod:\n        vib: |\n",
-    ],
-)
-def test_other_code_block_spellings_are_refused(defs):
-    """A label or statement at another indentation, a space after the block indicator, a blank
-    line, a hex integer, a code block in an x record and an empty block are refused."""
-    with pytest.raises(CanonicalError):
-        parse(doc(defs))
-
-
-TOP = (
-    "tables:\n  G: [1]\nmod:\n  note(): (φ < 1)*F(N) + v*(φ >= 1)\n  walk(s): v + s\n"
-    "  vib(c, s): |\n    lda t\n    cmp #c\n    lda F.hi,x\n    adc #<s\n    up:\n    rts\n"
-)
-
-
-def test_the_top_level_mod_section_holds_signed_templates_after_the_tables():
-    """Its records are at 2 spaces, each keyed by a signature, a code block's lines at 4: the
-    tree is a ``mods`` of signature tokens each before its ``expr`` or ``code``."""
-    tree = parse(doc("", STATE + TOP + "init: [C4]\n").replace("1.21", "1.23"))
-    assert [str(c) if isinstance(c, Token) else c.data for c in first(tree, "mods").children] == [
-        "note()",
-        "expr",
-        "walk(s)",
-        "expr",
-        "vib(c, s)",
-        "code",
-    ]
-    assert {t.type for t in first(tree, "mods").children if isinstance(t, Token)} == {"SIGNATURE"}
-    assert [str(t) for t in first(tree, "code").scan_values(lambda _: True)][5:7] == ["F.hi", ",x"]
-
-
-@pytest.mark.parametrize(
-    "head",
-    [
-        TOP.replace("  walk(s)", "  walk"),
-        TOP.replace("    up:", "          up:"),
-        TOP.replace("  note()", "    note()"),
-        TOP.replace("vib(c, s)", "vib(c,s)"),
-        TOP.replace("vib(c, s)", "vib(c,  s)"),
-        TOP.replace("vib(c, s)", "vib(x, s)"),
-        TOP.replace("walk(s)", "walk( )"),
-        TOP.replace("walk(s)", "Walk(s)"),
-        "mod:\n  walk(s): v + s\n" + STATE,
-        "mod:\n  walk(s): v + s\ntables:\n  G: [1]\n",
-        "init: [C4]\nmod:\n  walk(s): v + s\n",
+        MODS.replace("    up:", "  up:"),
+        MODS.replace("    rts", "      rts"),
+        MODS.replace("    up:", "          up:"),
+        MODS.replace("vib(c): |", "vib(c): | "),
+        MODS.replace("vib(c): |\n", "vib(c): |\n\n"),
+        MODS.replace("#c", "#$c"),
+        MODS.replace("  note()", "    note()"),
+        MODS.replace("porta(s, d)", "porta(s,d)"),
+        MODS.replace("porta(s, d)", "porta(s,  d)"),
+        MODS.replace("porta(s, d)", "porta(x, d)"),
+        MODS.replace("porta(s, d)", "porta( )"),
+        MODS.replace("porta(s, d)", "Porta(s, d)"),
+        "mod:\n  vib(): |\n",
         "mod:\n",
+        "ctrl:\n  c1: |\n    rts\n",
+        "mod:\n  porta(s): v + s\n" + STATE,
+        "mod:\n  porta(s): v + s\ntables:\n  G: [1]\n",
+        "init: [C4]\nmod:\n  porta(s): v + s\n",
     ],
 )
-def test_other_top_level_mod_spellings_are_refused(head):
-    """A key without its signature, a statement or record at another indentation, a parameter
-    list spaced otherwise, a code symbol as a parameter, a name that is no NAME, the section
-    before the state line or the tables or after the init row, and an empty section."""
+def test_other_mod_spellings_are_refused(top):
+    """A statement, label or record at another indentation, a space after ``|``, a blank line, a
+    hex integer, a parameter list spaced otherwise, a code symbol or a name that is no NAME, an
+    empty block or section, code in a program section and the section out of its place."""
     with pytest.raises(CanonicalError):
-        parse(doc("", head))
+        parse(doc(top))
 
 
-def test_a_row_s_mod_record_may_be_keyed_by_its_signature():
-    tree = parse(doc("      mod:\n        walk(s): v + s\n        note(): |\n          rts\n"))
-    section = next(s for s in tree.find_data("section") if s.children[0] == "walk(s)")
-    assert [(c.type, str(c)) for c in section.children if isinstance(c, Token)] == [
-        ("SIGNATURE", "walk(s)"),
-        ("SIGNATURE", "note()"),
-    ]
-
-
-def test_a_call_binds_a_cell_wherever_a_template_or_instance_did():
+def test_a_call_binds_a_cell_wherever_a_template_did():
     """A row key, an instrument field, a pw or filter record, a command and a slot's default
     each take a CALL token: the name, then its integer arguments without spaces; ``abs(3)`` is
     the expression."""
     tree = parse(
         doc(
-            INS + "{ctrl: [{pw: walk(-2), tick.freq: vib(0,4,32)}, end], pw: walk(1),"
-            " filter: walk(0), freq: abs(3), wob.freq: vib(1,+2,3)}\n"
-            "      pw:\n        pw1: walk(5)\n"
-            "      phrase:\n        p2: [C4.i1!pw:walk(3)!cut:walk(1)!wob.freq:vib(0,-4,5)"
-            "!freq:note()]\n",
-            "slots: {freq: {base: {mod: note()}, wob: {}, tick: {}}}\n",
+            "slots: {freq: {base: {mod: note()}, wob: {}, tick: {}}}\n"
+            + INS
+            + "{ctrl: [{pw: walk(-2), tick.freq: vib(0,4,32)}, end], pw: walk(1),"
+            " filter: walk(0), freq: abs(3), wob.freq: vib(1,+2,3)}\npw:\n  pw1: walk(5)\n",
+            "        p2: [C4.i1!pw:walk(3)!cut:walk(1)!wob.freq:vib(0,-4,5)!freq:note()]\n",
         )
     )
     calls = [str(t) for t in tree.scan_values(lambda v: v.type == "CALL")]
@@ -748,28 +643,29 @@ def test_a_call_binds_a_cell_wherever_a_template_or_instance_did():
 
 
 @pytest.mark.parametrize(
-    "defs",
+    "top, phrases",
     [
-        INS + "{pw: walk(1, 2)}\n",
-        INS + "{pw: walk(1,)}\n",
-        INS + "{pw: walk (1)}\n",
-        INS + "{pw: Walk(1)}\n",
-        "      phrase:\n        p2: [C4!pw:walk(1, 2)]\n",
-        "      phrase:\n        p2: [C4!ad:walk(1)]\n",
+        (INS + "{pw: walk(1, 2)}\n", ""),
+        (INS + "{pw: walk(1,)}\n", ""),
+        (INS + "{pw: walk (1)}\n", ""),
+        (INS + "{pw: Walk(1)}\n", ""),
+        ("", "        p2: [C4!pw:walk(1, 2)]\n"),
+        ("", "        p2: [C4!ad:walk(1)]\n"),
     ],
 )
-def test_other_call_spellings_are_refused(defs):
+def test_other_call_spellings_are_refused(top, phrases):
     """A space in or before the arguments, a trailing comma, a name that is no NAME and a call
     where no cell is bound."""
     with pytest.raises(CanonicalError):
-        parse(doc(defs))
+        parse(doc(top, phrases))
 
 
 INLINE = canonical(
-    "unitracker: 1.23\nmeta: {title: T}\ninit: [C4.{ad: 1}!pw:'v + 1']\nsong:\n  - def:\n"
-    "      ins:\n        i1: {ctrl: [{ctrl: 65, run: pw[{pw: 5}, end]}, end],"
+    "unitracker: 2.0\nmeta: {title: T}\n"
+    "ins:\n  i1: {ctrl: [{ctrl: 65, run: pw[{pw: 5}, end]}, end],"
     " pw: asm{lda v; up:; adc #1; sta v; bne up; rts}, freq: asm{rts}}\n"
-    "    play: [[C4.{ad: 9, ctrl: [{ctrl: 65}, end]}!run:ctrl[{ctrl: 64}, {loop: 0}]"
+    "init: [C4.{ad: 1}!pw:'v + 1']\nsong:\n"
+    "  - play: [[C4.{ad: 9, ctrl: [{ctrl: 65}, end]}!run:ctrl[{ctrl: 64}, {loop: 0}]"
     "!pw:asm{lda T.lo+3,x; sta v; rts}!cut:'min(3, v) + 1'!freq:'F(N) + 2'*2,"
     " -!run:filter[{cut: 7}, end]]+2]\n"
     "  - play: [[C4.i1!tick.freq:'2*v'*3]]\n  - end\n"
@@ -779,7 +675,7 @@ INLINE = canonical(
 def test_a_definition_stands_inline_where_its_name_does():
     """A program after its kind in run: and !run:, an instrument after an event's note, a
     phrase with its transpose in a play entry, an anonymous code body wherever a cell is bound,
-    and a quoted expression in a command."""
+    and a quoted expression in a command and a slot's default."""
     tree = parse(INLINE)
     assert [str(n.children[0]) for n in tree.find_data("run_program")] == ["pw", "ctrl", "filter"]
     assert len(list(tree.find_data("instrument"))) == 3
@@ -800,7 +696,7 @@ def test_a_definition_stands_inline_where_its_name_does():
         if isinstance(f, Tree) and f.data == "fexpr"
     ]
     assert sorted(commands) == ["2*v", "F(N) + 2", "min(3, v) + 1", "v + 1"]
-    slots = parse(doc("", "slots: {pw: {a: {mod: asm{rts}}, b: {mod: 'v + 1', hold: [step]}}}\n"))
+    slots = parse(doc("slots: {pw: {a: {mod: asm{rts}}, b: {mod: 'v + 1', hold: [step]}}}\n"))
     assert [c.data for n in slots.find_data("slot_mod") for c in n.children[:1]] == [
         "asm",
         "fexpr",
@@ -821,27 +717,28 @@ def test_a_definition_stands_inline_where_its_name_does():
         INLINE.replace("asm{rts}", "asm{clc;  rts}"),
         INLINE.replace("]+2]", "] +2]"),
         INLINE.replace("C4.{ad: 9,", "C4.{ad:9,"),
+        doc("slots: {pw: {a: {mod: v + 1}}}\n"),
     ],
 )
 def test_other_inline_spellings_are_refused(text):
-    """A program without its kind or spaced from it, an unquoted expression in a command, an
-    empty or spaced code body, a statement separator other than ``; ``, a spaced transpose and
-    an instrument outside the instrument spelling."""
+    """A program without its kind or spaced from it, an unquoted expression in a command or a
+    slot's default, an empty or spaced code body, a statement separator other than ``; ``, a
+    spaced transpose and an instrument outside the instrument spelling."""
     with pytest.raises(CanonicalError):
         parse(text)
 
 
 PROGRAMS = (
-    "unitracker: 1.23\nmeta: {title: T}\nmod:\n  walk(s): v + s\n"
+    "unitracker: 2.0\nmeta: {title: T}\nmod:\n  walk(s): v + s\n"
     "restart:\n  hr(h, ad, sr): [{hold: h, gate: 0, ad: ad, sr: sr}, end]\n"
     "ins:\n  i1: {ad: 9, ctrl: arp(7,-4), pw: pt(3), filter: fl(5), restart: hr(2,9,220)}\n"
     "ctrl:\n  arp(a, b): [{ctrl: a, note: +a}, {wait: a, gate: b, note: -b,"
-    " run: pw:pt(b)}, {run: fl(a)}, {loop: 0}]\n"
+    " run: pt(b)}, {run: fl(a)}, {loop: 0}]\n"
     "  c1: [{ctrl: 129^8, route: 3, freq: v + 1}, end]\n"
     "pw:\n  pt(b): [{pw: walk(b)}, {pw: b, res: b, route: b, mode: b, vol: b}, end]\n"
     "  pw1: pt(4)\nfilter:\n  fl(c): c\n"
     "song:\n  - def:\n"
-    "      phrase:\n        p1: [C4.i1!run:ctrl:arp(1,2), -!run:arp(3,4), D4.{ctrl: arp(0,0)}]\n"
+    "      phrase:\n        p1: [C4.i1!run:arp(1,2), -!run:c1, D4.{ctrl: arp(0,0)}]\n"
     "    play: [p1]\n  - end\n"
 )
 
@@ -849,20 +746,20 @@ PROGRAMS = (
 def test_a_program_record_may_be_a_template_whose_rows_read_its_parameters():
     """Each program kind's record may be keyed by a signature; a row reads a parameter where it
     takes an integer, as a relative note's +p or -p, as a cell value and as a call's argument,
-    and a call binds a template wherever a program name stands, in run: bare or after its
-    kind."""
+    and a call binds a template wherever a program name stands, in run: and !run:."""
     tree = parse(PROGRAMS)
-    keys = [
-        (t.type, str(t))
-        for s in tree.find_data("section")
+    sigs = [
+        (s.data, str(t))
+        for s in tree.children
+        if isinstance(s, Tree)
         for t in s.children
-        if isinstance(t, Token) and t.type.endswith("_SIG")
+        if isinstance(t, Token) and t.type == "PROGRAM_SIG"
     ]
-    assert keys == [
-        ("RESTART_SIG", "hr(h, ad, sr)"),
-        ("CTRL_SIG", "arp(a, b)"),
-        ("PW_SIG", "pt(b)"),
-        ("FILTER_SIG", "fl(c)"),
+    assert sigs == [
+        ("def_restart", "hr(h, ad, sr)"),
+        ("def_ctrl", "arp(a, b)"),
+        ("def_pw", "pt(b)"),
+        ("def_filter", "fl(c)"),
     ]
     reads = [
         (n.data, str(t))
@@ -887,12 +784,18 @@ def test_a_program_record_may_be_a_template_whose_rows_read_its_parameters():
         "row_mode",
         "row_vol",
     ]
-    names = [n.children for n in tree.find_data("program_name")]
-    assert [[(t.type, str(t)) for t in c] for c in names] == [
-        [("RUN_KIND", "pw:"), ("CALL", "pt(b)")],
-        [("CALL", "fl(a)")],
-        [("RUN_KIND", "ctrl:"), ("CALL", "arp(1,2)")],
-        [("CALL", "arp(3,4)")],
+    runs = [
+        (n.data, t.type, str(t))
+        for n in tree.iter_subtrees_topdown()
+        if n.data in ("row_run", "cmd_run")
+        for t in n.children
+        if isinstance(t, Token)
+    ]
+    assert runs == [
+        ("row_run", "CALL", "pt(b)"),
+        ("row_run", "CALL", "fl(a)"),
+        ("cmd_run", "CALL", "arp(1,2)"),
+        ("cmd_run", "CTRL", "c1"),
     ]
 
 
@@ -910,9 +813,8 @@ def test_a_program_record_may_be_a_template_whose_rows_read_its_parameters():
         ("{loop: 0}", "{loop: a}"),
         ("route: 3", "route: + a"),
         ("ctrl: 129^8", "ctrl: 129^a"),
-        ("run: pw:pt(b)", "run: pw: pt(b)"),
-        ("run: pw:pt(b)", "run: restart:hr(1,2,3)"),
-        ("!run:ctrl:arp(1,2)", "!run:ctrl:c1"),
+        ("run: pt(b)", "run: pt (b)"),
+        ("!run:arp(1,2)", "!run: arp(1,2)"),
         ("pw: pt(3)", "pw: pt(3, 4)"),
         ("arp(7,-4)", "arp(7, -4)"),
     ],
@@ -920,8 +822,7 @@ def test_a_program_record_may_be_a_template_whose_rows_read_its_parameters():
 def test_other_program_template_spellings_are_refused(old, new):
     """A signature's parameters separated by ", " and none a name a cell value means otherwise
     (v, n, none, hold) nor a record's; a relative note's sign before the name; a loop row, a
-    route's mask and a control mask literal; a run's kind joined to its call, and run's kinds
-    alone; a call's arguments unspaced."""
+    route's mask and a control mask literal; a run spaced from its call; a call spaced."""
     assert old in PROGRAMS
     with pytest.raises(CanonicalError):
         parse(PROGRAMS.replace(old, new))
@@ -929,19 +830,15 @@ def test_other_program_template_spellings_are_refused(old, new):
 
 def test_the_definitions_are_top_level_sections_after_the_templates():
     """restart, ins, ctrl, pw and filter sections, each optional and in that order, stand after
-    the top-level mod section and before init, records at 2 spaces, each a section tree as a
-    row's are; a row's def: keeps its phrases."""
+    the mod section and before init, records at 2 spaces, each a ``def_KIND`` tree; a row's
+    def: holds its phrases."""
     tree = parse(PROGRAMS.replace("song:", "init: [C4.i1]\nsong:"))
-    top = [c for c in tree.children if isinstance(c, Tree) and c.data == "section"]
-    assert [c.children[0].type for c in top] == [
-        "RESTART_SIG",
-        "INS",
-        "CTRL_SIG",
-        "PW_SIG",
-        "FILTER_SIG",
-    ]
-    rows = [s for r in tree.find_data("row") for s in r.children if isinstance(s, Tree)]
-    assert [s.children[0].type for s in rows if s.data == "section"] == ["PHRASE"]
+    top = [c.data for c in tree.children if isinstance(c, Tree) and c.data.startswith("def_")]
+    assert top == ["def_mod", "def_restart", "def_ins", "def_ctrl", "def_pw", "def_filter"]
+    assert [t.type for t in first(tree, "def_ins").children if isinstance(t, Token)] == ["INS"]
+    rows = [s.data for r in tree.find_data("row") for s in r.children if isinstance(s, Tree)]
+    assert rows == ["def_phrase", "plays"]
+    assert keys(first(tree, "def_phrase")) == ["p1", "phrase"]
     assert parse(
         PROGRAMS.replace(
             "restart:\n  hr(h, ad, sr): [{hold: h, gate: 0, ad: ad, sr: sr}, end]\n", ""
@@ -954,17 +851,17 @@ def test_the_definitions_are_top_level_sections_after_the_templates():
     [
         ("pw:\n  pt(b)", "pw:\n    pt(b)"),
         ("ins:\n  i1: {", "ins:\n        i1: {"),
-        ("filter:\n  fl(c): c\n", ""),
-        ("mod:\n  walk(s): v + s\n", ""),
+        ("restart:\n", "filter:\n  fl(c): c\nrestart:\n"),
+        ("ins:\n", "mod:\n  walk(s): v + s\nins:\n"),
+        ("song:", "ins:\n  i2: {ad: 1}\nsong:"),
+        ("  - def:\n      phrase:", "  - def:\n    phrase:"),
     ],
 )
 def test_other_top_level_definition_spellings_are_refused(old, new):
-    """Records at other than 2 spaces, and the sections out of their order (filter moved first,
-    the mod section after them)."""
-    text = PROGRAMS.replace(old, new)
-    if not new and old.startswith("filter"):
-        text = text.replace("restart:\n", "filter:\n  fl(c): c\nrestart:\n")
-    if not new and old.startswith("mod"):
-        text = text.replace("song:", "mod:\n  walk(s): v + s\nsong:")
+    """Records at other than 2 spaces, a section out of its order (filter first, mod or ins
+    after another), and a row's phrases at other than 6 spaces."""
+    text = PROGRAMS.replace(old, new, 1)
+    text = text.replace("filter:\n  fl(c): c\nsong:", "song:") if "restart" in new else text
+    text = text.replace("mod:\n  walk(s): v + s\nrestart:", "restart:") if "mod" in new else text
     with pytest.raises(CanonicalError):
         parse(text)
