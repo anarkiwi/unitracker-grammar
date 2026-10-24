@@ -1,23 +1,31 @@
 """Code templates: read from a text or a document, checked and printed in their one text."""
 
+import re
+
 import pytest
 
 from unitracker_grammar import CanonicalError, parse
 from unitracker_grammar.code import (
     LEGAL,
     MNEMONICS,
+    NOTES,
+    Call,
     CodeError,
     Imm,
     Label,
     Mem,
     Op,
+    call,
     canonical,
     check,
+    declare,
     line,
     op,
     params,
     printed,
     read,
+    signature,
+    signatures,
     state,
     symbols,
     templates,
@@ -135,7 +143,8 @@ def test_a_routine_outside_the_template_rules_is_refused(text, why):
         "LDA t\nrts\n",
         "lda #<5\nrts\n",
         "lda T.mid\nrts\n",
-        "lda F.lo\nrts\n",
+        "lda Fo.lo\nrts\n",
+        "lda N.lo\nrts\n",
         "up :\nrts\n",
         " up:\nrts\n",
         "\nrts\n",
@@ -173,3 +182,53 @@ def test_a_document_s_templates_are_its_code_blocks_checked():
 def test_a_state_variable_is_declared_once_across_cells():
     with pytest.raises(CanonicalError, match="twice"):
         state(parse(document("state: {freq: {t: 1}, pw: {t: 1}}\n", VIB)))
+
+
+def test_a_call_is_its_name_and_integer_arguments():
+    assert call("vib(0,-4,+32)") == Call("vib", (0, -4, 32))
+    assert call("note()") == Call("note") and str(Call("vib", (0, -4))) == "vib(0,-4)"
+
+
+def test_a_signature_declares_the_parameters_the_body_reads():
+    assert signature("vib(l, c, s)") == ("vib", ("l", "c", "s")) and signature("n()") == ("n", ())
+    assert declare("vib(s, c)", ("c", "s")) == ("vib", ("s", "c"))
+    with pytest.raises(CodeError, match="declared twice"):
+        signature("vib(c, c)")
+    with pytest.raises(CodeError, match=r"undeclared \['s'\], unread \[\]"):
+        declare("vib(c)", ("c", "s"))
+    with pytest.raises(CodeError, match=r"undeclared \[\], unread \['d'\]"):
+        declare("vib(c, d)", ("c",))
+    with pytest.raises(CodeError, match=r"\['t'\] are state variables"):
+        declare("vib(t)", ("t",), {"t"})
+
+
+TOP = (
+    "unitracker: 1.23\nmeta: {title: T}\nstate: {freq: {t: 1}}\nmod:\n  walk(s): v + s*n\n"
+    "  note(): F(N)\n  vib(c, p): |\n    lda t\n    cmp #c\n    lda #>p\n    lda F.lo,x\n"
+    "    rts\nsong:\n  - def:\n      mod:\n        add(d): |\n          adc #d\n          rts\n"
+    "        old: v\n      phrase:\n        p1: [C4]\n    play: [p1]\n  - end\n"
+)
+
+
+def test_a_document_s_signatures_and_templates_are_in_its_rows_and_its_mod_section():
+    tree = parse(TOP)
+    assert signatures(tree) == {"walk": ("s",), "note": (), "vib": ("c", "p"), "add": ("d",)}
+    assert set(templates(tree)) == {"vib", "add"}
+    assert templates(tree)["vib"][3] == Op("lda", "memory,x", Mem("F.lo", 0, "x"))
+    assert NOTES == ("F.lo", "F.hi")
+    with pytest.raises(CodeError, match="are state variables"):
+        signatures(parse(TOP.replace("walk(s): v + s*n", "walk(t): v + t*n")))
+
+
+@pytest.mark.parametrize(
+    "wrong, right, read_with",
+    [
+        ("walk(s)", "walk()", signatures),
+        ("vib(c, p)", "vib(c)", templates),
+        ("vib(c, p)", "vib(c, p, q)", signatures),
+        ("add(d)", "add()", templates),
+    ],
+)
+def test_a_signature_other_than_the_body_s_parameters_is_refused(wrong, right, read_with):
+    with pytest.raises(CodeError, match=re.escape(f"{right}: undeclared")):
+        read_with(parse(TOP.replace(wrong, right)))

@@ -2,20 +2,24 @@
 
 A routine is a tuple of statements, each a :class:`Label` or an :class:`Op`, whose operand is
 ``None`` (implied), an :class:`Imm`, a :class:`Mem` or, for a branch or ``jmp``, a label's name;
-:func:`printed` is its one text.
+:func:`printed` is its one text. A template's key may be its signature, ``name(a, b)``, which a
+:class:`Call`, ``name(1,-2)``, binds.
 """
 
 import functools
+import re
 from typing import NamedTuple
 
 from jennings.opcodes import ILLEGAL_OPCODES, OPCODES
 from lark import Lark, Token, Transformer, Tree, exceptions
 
+from unitracker_grammar import expr
 from unitracker_grammar.canonical import GRAMMAR, CanonicalError
 
 SYMBOLS = ("v", "phi", "nn", "ne")
 REGISTERS = ("a", "x", "y")
 RESERVED = frozenset(SYMBOLS + REGISTERS)
+NOTES = ("F.lo", "F.hi")
 EXCLUDED = frozenset({"brk", "jsr", "rti"})
 BRANCHES = frozenset({"bcc", "bcs", "beq", "bmi", "bne", "bpl", "bvc", "bvs"})
 IMPLIED, IMMEDIATE, MEMORY, LABEL = "implied", "immediate", "memory", "label"
@@ -42,6 +46,47 @@ _INDENT = " " * 10
 
 class CodeError(ValueError):
     """A text or structure that is no code template."""
+
+
+class Call(NamedTuple):
+    """A binding of a template: its name and its arguments, in its signature's order."""
+
+    name: str
+    args: tuple[int, ...] = ()
+
+    def __str__(self):
+        return f"{self.name}({','.join(map(str, self.args))})"
+
+
+_CALL = re.compile(r"([a-z][a-z0-9_]*)\((.*)\)")
+
+
+def call(text: str) -> Call:
+    """The :class:`Call` of a ``CALL`` text, ``name(1,-2,3)`` or ``name()``."""
+    name, args = _CALL.fullmatch(text).groups()
+    return Call(name, tuple(int(a) for a in args.split(",")) if args else ())
+
+
+def signature(text: str) -> tuple[str, tuple[str, ...]]:
+    """``(name, parameters)`` of a ``SIGNATURE`` text, ``name(a, b)`` or ``name()``;
+    CodeError when a parameter is declared twice."""
+    name, names = _CALL.fullmatch(text).groups()
+    declared = tuple(names.split(", ")) if names else ()
+    if len(set(declared)) != len(declared):
+        raise CodeError(f"{text}: a parameter declared twice")
+    return name, declared
+
+
+def declare(text: str, used, names=()) -> tuple[str, tuple[str, ...]]:
+    """The :func:`signature` of ``text`` if its parameters are the names a template's body reads
+    as parameters, ``used``, and none is one of ``names`` (the state variables)."""
+    name, declared = signature(text)
+    if set(declared) != set(used):
+        missing, extra = sorted(set(used) - set(declared)), sorted(set(declared) - set(used))
+        raise CodeError(f"{text}: undeclared {missing}, unread {extra}")
+    if clash := sorted(set(declared) & set(names)):
+        raise CodeError(f"{text}: parameters {clash} are state variables")
+    return name, declared
 
 
 class Label(NamedTuple):
@@ -246,13 +291,42 @@ def state(tree: Tree) -> dict[str, tuple[tuple[str, int], ...]]:
     return cells
 
 
+def _records(tree: Tree):
+    """``(key, body)`` of each template of a document parse tree, in its rows' ``mod`` sections
+    and its top-level one: the key a NAME or SIGNATURE token, the body a ``code`` or ``expr``
+    tree."""
+    for node in tree.iter_subtrees_topdown():
+        if node.data in ("section", "mods"):
+            for key, body in zip(node.children, node.children[1:]):
+                if isinstance(key, Token) and key.type in ("NAME", "SIGNATURE"):
+                    yield key, body
+
+
 def templates(tree: Tree) -> dict[str, tuple]:
     """A document parse tree's checked code templates by name; no label names a state
-    variable."""
+    variable, and a signature declares the parameters the routine reads."""
     names = {n for variables in state(tree).values() for n, _ in variables}
-    return {
-        str(name): check(Statements().transform(node), names)
-        for section in tree.find_data("section")
-        for name, node in zip(section.children, section.children[1:])
-        if isinstance(name, Token) and isinstance(node, Tree) and node.data == "code"
-    }
+    out = {}
+    for key, body in _records(tree):
+        if body.data == "code":
+            statements = check(Statements().transform(body), names)
+            name = declare(key, params(statements), names)[0] if key.type == "SIGNATURE" else key
+            out[str(name)] = statements
+    return out
+
+
+def signatures(tree: Tree) -> dict[str, tuple[str, ...]]:
+    """The declared parameters of each template of a document parse tree keyed by its
+    signature, checked as :func:`declare` checks them (an expression's parameters are its
+    :func:`~unitracker_grammar.expr.params`)."""
+    names = {n for variables in state(tree).values() for n, _ in variables}
+    return dict(
+        declare(key, reads(body), names) for key, body in _records(tree) if key.type == "SIGNATURE"
+    )
+
+
+def reads(body: Tree) -> tuple[str, ...]:
+    """The parameters a template's ``code`` or ``expr`` parse tree reads."""
+    if body.data == "code":
+        return params(Statements().transform(body))
+    return tuple(sorted(expr.params(expr.Nodes().transform(body))))

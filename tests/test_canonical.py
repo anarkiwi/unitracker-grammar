@@ -646,3 +646,109 @@ def test_other_code_block_spellings_are_refused(defs):
     line, a hex integer, a code block in an x record and an empty block are refused."""
     with pytest.raises(CanonicalError):
         parse(doc(defs))
+
+
+TOP = (
+    "tables:\n  G: [1]\nmod:\n  note(): (φ < 1)*F(N) + v*(φ >= 1)\n  walk(s): v + s\n"
+    "  vib(c, s): |\n    lda t\n    cmp #c\n    lda F.hi,x\n    adc #<s\n    up:\n    rts\n"
+)
+
+
+def test_the_top_level_mod_section_holds_signed_templates_after_the_tables():
+    """Its records are at 2 spaces, each keyed by a signature, a code block's lines at 4: the
+    tree is a ``mods`` of signature tokens each before its ``expr`` or ``code``."""
+    tree = parse(doc("", STATE + TOP + "init: [C4]\n").replace("1.21", "1.23"))
+    assert [str(c) if isinstance(c, Token) else c.data for c in first(tree, "mods").children] == [
+        "note()",
+        "expr",
+        "walk(s)",
+        "expr",
+        "vib(c, s)",
+        "code",
+    ]
+    assert {t.type for t in first(tree, "mods").children if isinstance(t, Token)} == {"SIGNATURE"}
+    assert [str(t) for t in first(tree, "code").scan_values(lambda _: True)][5:7] == ["F.hi", ",x"]
+
+
+@pytest.mark.parametrize(
+    "head",
+    [
+        TOP.replace("  walk(s)", "  walk"),
+        TOP.replace("    up:", "          up:"),
+        TOP.replace("  note()", "    note()"),
+        TOP.replace("vib(c, s)", "vib(c,s)"),
+        TOP.replace("vib(c, s)", "vib(c,  s)"),
+        TOP.replace("vib(c, s)", "vib(x, s)"),
+        TOP.replace("walk(s)", "walk( )"),
+        TOP.replace("walk(s)", "Walk(s)"),
+        "mod:\n  walk(s): v + s\n" + STATE,
+        "mod:\n  walk(s): v + s\ntables:\n  G: [1]\n",
+        "init: [C4]\nmod:\n  walk(s): v + s\n",
+        "mod:\n",
+    ],
+)
+def test_other_top_level_mod_spellings_are_refused(head):
+    """A key without its signature, a statement or record at another indentation, a parameter
+    list spaced otherwise, a code symbol as a parameter, a name that is no NAME, the section
+    before the state line or the tables or after the init row, and an empty section."""
+    with pytest.raises(CanonicalError):
+        parse(doc("", head))
+
+
+def test_a_row_s_mod_record_may_be_keyed_by_its_signature():
+    tree = parse(doc("      mod:\n        walk(s): v + s\n        note(): |\n          rts\n"))
+    section = next(s for s in tree.find_data("section") if s.children[0] == "walk(s)")
+    assert [(c.type, str(c)) for c in section.children if isinstance(c, Token)] == [
+        ("SIGNATURE", "walk(s)"),
+        ("SIGNATURE", "note()"),
+    ]
+
+
+def test_a_call_binds_a_cell_wherever_a_template_or_instance_did():
+    """A row key, an instrument field, a pw or filter record, a command and a slot's default
+    each take a CALL token: the name, then its integer arguments without spaces; ``abs(3)`` is
+    the expression."""
+    tree = parse(
+        doc(
+            INS + "{ctrl: [{pw: walk(-2), tick.freq: vib(0,4,32)}, end], pw: walk(1),"
+            " filter: walk(0), freq: abs(3), wob.freq: vib(1,+2,3)}\n"
+            "      pw:\n        pw1: walk(5)\n"
+            "      phrase:\n        p2: [C4.i1!pw:walk(3)!cut:walk(1)!wob.freq:vib(0,-4,5)"
+            "!freq:note()]\n",
+            "slots: {freq: {base: {mod: note()}, wob: {}, tick: {}}}\n",
+        )
+    )
+    calls = [str(t) for t in tree.scan_values(lambda v: v.type == "CALL")]
+    assert calls == [
+        "note()",
+        "walk(-2)",
+        "vib(0,4,32)",
+        "walk(1)",
+        "walk(0)",
+        "vib(1,+2,3)",
+        "walk(5)",
+        "walk(3)",
+        "walk(1)",
+        "vib(0,-4,5)",
+        "note()",
+    ]
+    assert [str(t) for t in tree.scan_values(lambda v: v.type == "ABS")] == ["abs("]
+
+
+@pytest.mark.parametrize(
+    "defs",
+    [
+        INS + "{pw: walk(1, 2)}\n",
+        INS + "{pw: walk(a)}\n",
+        INS + "{pw: walk(1,)}\n",
+        INS + "{pw: walk (1)}\n",
+        INS + "{pw: Walk(1)}\n",
+        "      phrase:\n        p2: [C4!pw:walk(1, 2)]\n",
+        "      phrase:\n        p2: [C4!ad:walk(1)]\n",
+    ],
+)
+def test_other_call_spellings_are_refused(defs):
+    """A space in or before the arguments, an argument that is no integer, a trailing comma, a
+    name that is no NAME and a call where no cell is bound."""
+    with pytest.raises(CanonicalError):
+        parse(doc(defs))

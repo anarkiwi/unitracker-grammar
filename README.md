@@ -18,7 +18,14 @@ line names the phases of a tick in the order they run
 after `order`, declares per cell its state variables and their sizes in bytes
 (`state: {freq: {t: 1}, pw: {r: 1, q: 2}}`), a copy per voice (one for `cut`), 0 at tick 0, which
 only code templates read and write; a `mod` record may be a code block (`vib: |`, then a
-statement per line at the record's indentation plus 2) instead of an expression. Format 1.21's
+statement per line at the record's indentation plus 2) instead of an expression. Its templates
+stand in one top-level `mod:` section after `tables:` and before `init`, records at 2 spaces and
+code lines at 4, each keyed by its signature (`  vib(l, c, s): |`, `  walk(s): v + s`,
+`  note(): F(N)`; parameters separated by `, `); a call binds one wherever a cell is bound, its
+integer arguments in the signature's order without spaces (`pw: walk(-2)`,
+`!tick.freq:vib(0,4,64)`, `slots: {freq: {base: {mod: note()}}}`). The grammar admits every
+version's forms (a row's `mod:` records may also be keyed by a signature): which a version plays
+is the player's to say. Format 1.21's
 `hold` line names, per cell, the events its modulators hold on (unitracker-player's
 [semantics](https://github.com/anarkiwi/unitracker-player/blob/main/docs/semantics.md)).
 
@@ -83,7 +90,20 @@ variables of the template's cell, and `T.lo` / `T.hi` (each entry's low and high
 its cell's state are set, A, X, Y and the flags (but I) are 0, and the routine runs to an `rts`
 on an empty stack, within 4096 instructions; `v` wrapped to the cell's width is its value and the
 state is stored back. A symbol that is none of these, or a state variable of another cell, is
-refused when the template is bound.
+refused when the template is bound. `F.lo` / `F.hi` are the note table's bytes, entry k those
+of `frequency(k, clock_hz)` for k 0-255.
+
+```python
+code.signature("vib(l, c, s)")            # ('vib', ('l', 'c', 's')), CodeError on a repeat
+code.declare("vib(c)", ("c",), {"t"})      # the signature, if it declares what the body reads
+code.call("vib(0,-4,32)")                  # Call(name='vib', args=(0, -4, 32))
+code.signatures(parse(text))               # {name: parameters} of its signed templates, checked
+```
+
+In the parse tree a signed record's key is a `SIGNATURE` token (`vib(l, c, s)`) where a plain
+one's is a `NAME`, a call is one `CALL` token (`vib(0,-4,32)`) where a binding may be a name or
+an expression, and the top-level section is a `mods` tree of `SIGNATURE` tokens each followed by
+its `expr` or `code` tree; `code.templates` keys each by its bare name.
 
 ## Grammar
 

@@ -18,8 +18,12 @@
 // Format 1.23 declares, in its state line, each cell's state variables (per voice, 0 at tick 0);
 // a mod: template may instead be a code block, a 6502 routine over v, phi, nn, ne, its cell's
 // state variables and the tables' bytes, one canonical statement per line (code.py).
+// Its templates stand in one top-level mod: section after the tables (records at 2 spaces, code
+// lines at 4), each key a SIGNATURE, name(a, b) or name(), whose parameters a CALL, name(1,-2,3)
+// or name(), binds in order wherever a cell is bound; code reads the note table as F.lo, F.hi.
+// The grammar admits every version's forms: which a version plays is the player's to say.
 
-start: "unitracker: " VERSION _NL meta _NL (clock _NL)? (voices _NL)? (tempo _NL)? (hold _NL)? (slots _NL)? (order _NL)? (state _NL)? tables? (init _NL)? "song:" _NL row+ ending
+start: "unitracker: " VERSION _NL meta _NL (clock _NL)? (voices _NL)? (tempo _NL)? (hold _NL)? (slots _NL)? (order _NL)? (state _NL)? tables? mods? (init _NL)? "song:" _NL row+ ending
 
 // ---- header: clock, voices and tempo only where they differ from PAL, 3 and 6 ---------------
 
@@ -42,7 +46,7 @@ events: _LB HOLD_EVENT (_SEP HOLD_EVENT)* "]"
 slots: "slots: " _LC slot_cell (_SEP slot_cell)* "}"
 slot_cell: CELL ": " _LC slot (_SEP slot)* "}"
 slot: NAME ": " _LC slot_mod? "}"
-slot_mod: "mod: " NAME (_SEP slot_hold)? | slot_hold
+slot_mod: "mod: " (NAME | CALL) (_SEP slot_hold)? | slot_hold
 slot_hold: "hold: " events (_SEP slot_reset)? | slot_reset
 slot_reset: "reset: " events
 
@@ -62,6 +66,9 @@ state_var: STATE_NAME ": " STATE_SIZE
 tables: "tables:" _NL ("  " XTABLE ": " intlist _NL)+
 intlist: _LB INT (_SEP INT)* "]"
 
+// format 1.23: the templates, each an expression or a code block at 4 spaces
+mods: "mod:" _NL ("  " SIGNATURE (": " expr _NL | ": |" _NL top_code))+
+
 // one event per voice: the state after init, a step of no duration before the first tick
 init: "init: " _LB event (_SEP event)* "]"
 
@@ -80,7 +87,7 @@ section: "      restart:" _NL ("        " RESTART ": " program _NL)+
        | "      ctrl:" _NL ("        " CTRL ": " program _NL)+
        | "      pw:" _NL ("        " PW ": " modulation _NL)+
        | "      filter:" _NL ("        " FILTER ": " modulation _NL)+
-       | "      mod:" _NL ("        " NAME _template)+
+       | "      mod:" _NL ("        " (NAME | SIGNATURE) _template)+
        | "      x:" _NL ("        " X ": " expr (" " param_bag)? _NL)+
        | "      phrase:" _NL ("        " PHRASE ": " phrase _NL)+
 
@@ -93,7 +100,7 @@ ins_sr: "sr: " (INT) (_SEP ins_ctrl)? | ins_ctrl
 ins_ctrl: "ctrl: " (CTRL | program) (_SEP ins_pw)? | ins_pw
 ins_pw: SLOT? "pw: " (PW | X | NONE | modulation) (_SEP ins_pw)? | ins_filter
 ins_filter: SLOT? "filter: " (FILTER | X | NONE | modulation) (_SEP ins_filter)? | ins_freq
-ins_freq: SLOT? "freq: " (X | NONE | fexpr | bound) (_SEP ins_freq)? | ins_fn
+ins_freq: SLOT? "freq: " (X | NONE | CALL | fexpr | bound) (_SEP ins_freq)? | ins_fn
 ins_fn: "mod: " NAME (_WB param_bag)? (_SEP ins_restart)? | ins_restart
 param_bag: "{" pname_val (_SEP pname_val)* "}"
 pname_val: NAME _BSC (SIGNED | INT | NAME | pname_list)
@@ -105,7 +112,7 @@ ins_restart: "restart: " (RESTART | program)
 // a program: its rows in the order they run, then its end or its loop
 program: _LB (row_ _SEP)* (END | _LC LOOP INT "}") "]"
 // a pulse or filter program that is one binding (a constant is one) is written as that
-modulation: program | fexpr | bound
+modulation: program | CALL | fexpr | bound
 // a template bound with its parameters
 bound: fexpr " " param_bag
 
@@ -129,7 +136,7 @@ row_vol: "vol: " (INT)
 
 ctrl_value: INT | CTRLMASK
 note_value: SIGNED | NOTE
-cell_value: fexpr | bound | X | NONE | HOLD
+cell_value: fexpr | bound | CALL | X | NONE | HOLD
 route_value: INT | ROUTE_ADD | ROUTE_ADD_MASK INT | ROUTE_REMOVE | ROUTE_REMOVE_MASK INT "'"
 program_name: CTRL | PW | FILTER
 
@@ -138,7 +145,7 @@ program_name: CTRL | PW | FILTER
 phrase: _LB event (_SEP event)* "]"
 event: NOTE_ATOM ("." INS)? cmd_run keep_pw keep_filter ("*" INT)?
 cmd_run: "!run:" (program_name | NONE) cmd_pw | cmd_pw
-cmd_pw: CMD_PW (INT | X | NONE | HOLD) cmd_pw | cmd_filter
+cmd_pw: CMD_PW (INT | X | CALL | NONE | HOLD) cmd_pw | cmd_filter
 cmd_filter: FILTER_NONE cmd_ad | cmd_ad
 cmd_ad: "!ad:" INT cmd_sr | cmd_sr
 cmd_sr: "!sr:" INT cmd_ctrl | cmd_ctrl
@@ -146,10 +153,10 @@ cmd_ctrl: "!ctrl:" INT cmd_resfilt | cmd_resfilt
 cmd_resfilt: "!resfilt:" INT "/" INT cmd_mode | cmd_mode
 cmd_mode: "!mode:" INT cmd_vol | cmd_vol
 cmd_vol: "!vol:" INT cmd_cut | cmd_cut
-cmd_cut: CMD_CUT (INT | X | NONE | HOLD) cmd_cut | cmd_tempo
+cmd_cut: CMD_CUT (INT | X | CALL | NONE | HOLD) cmd_cut | cmd_tempo
 cmd_tempo: "!tempo:" INT ("/" INT)? cmd_vtempo | cmd_vtempo
 cmd_vtempo: "!vtempo:" INT ("/" INT)? cmd_freq | cmd_freq
-cmd_freq: CMD_FREQ (X | NONE | HOLD | SIGNED | INT) cmd_freq | cmd_set
+cmd_freq: CMD_FREQ (X | CALL | NONE | HOLD | SIGNED | INT) cmd_freq | cmd_set
 cmd_set: ("!set " NAME " " (SIGNED | INT))+ cmd_legato | cmd_legato
 cmd_legato: LEGATO | 
 keep_pw: KEEP_PW |
@@ -170,6 +177,7 @@ factor: INT | SIGNED | V | PHI | N | EVENT_NOTE | PARAM
 // ---- code (format 1.23): a label, or a mnemonic with its operand --------------------------
 
 code: ("          " (code_label | code_op) _NL)+
+top_code: ("    " (code_label | code_op) _NL)+ -> code
 code_label: NAME ":"
 code_op: NAME (" " (code_imm | code_mem))?
 code_imm: "#" (IMM_INT | BYTE? NAME)
@@ -208,7 +216,10 @@ DQUOTED: /"(?:[^"\\]|\\.)*"/
 NAME: /[a-z][a-z0-9_]*/
 STATE_NAME: /(?!(?:v|phi|nn|ne|a|x|y)\b)[a-z][a-z0-9_]*/
 STATE_SIZE: /[12]\b/
-TABLE_BYTE: /[A-EG-MO-Z][A-Za-z]*\.(?:lo|hi)/
+TABLE_BYTE: /(?:F|[A-EG-MO-Z][A-Za-z]*)\.(?:lo|hi)/
+// format 1.23: a template's key with its parameters, none a code symbol, and a binding's call
+SIGNATURE: /[a-z][a-z0-9_]*\((?:(?!(?:v|phi|nn|ne|a|x|y)\b)[a-z][a-z0-9_]*(?:, (?!(?:v|phi|nn|ne|a|x|y)\b)[a-z][a-z0-9_]*)*)?\)/
+CALL: /(?!(?:abs|min|max)\()[a-z][a-z0-9_]*\((?:[+-]?\d+(?:,[+-]?\d+)*)?\)/
 IMM_INT: /0|[1-9]\d*/
 OFFSET: /\+[1-9]\d*/
 INDEX: ",x" | ",y"
