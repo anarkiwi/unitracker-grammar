@@ -290,7 +290,8 @@ def state(tree: Tree) -> dict[str, tuple[tuple[str, int], ...]]:
     CanonicalError when a name is declared twice."""
     cells = {
         node.data[6:]: tuple((str(v.children[0]), int(v.children[1])) for v in child.children)
-        for node in tree.iter_subtrees_topdown()
+        for top in _top(tree, "state")
+        for node in top.iter_subtrees_topdown()
         if node.data in ("state_freq", "state_pw", "state_cut")
         for child in node.children
         if isinstance(child, Tree) and child.data == "state_vars"
@@ -301,11 +302,89 @@ def state(tree: Tree) -> dict[str, tuple[tuple[str, int], ...]]:
     return cells
 
 
+def _top(tree: Tree, data: str) -> list:
+    """The top-level nodes named ``data`` of a document parse tree."""
+    return [c for c in tree.children if isinstance(c, Tree) and c.data == data]
+
+
 def _records(tree: Tree, kind: str = "mod"):
-    """``(key, body)`` of each record of a document parse tree's ``kind`` section: a template's
-    key a SIGNATURE token and its body a ``code`` or ``expr`` tree."""
-    for node in tree.find_data(f"def_{kind}"):
+    """``(key, body)`` of each definition of ``kind`` in a document parse tree, its section's
+    records then those at their first use: a template's key a SIGNATURE token and its body a
+    ``code``, ``asm``, ``expr`` or ``fexpr`` tree, a program template's a program."""
+    for node in _top(tree, f"def_{kind}"):
         yield from zip(node.children[::2], node.children[1::2])
+    yield from ((key, body) for k, key, body in first_uses(tree) if k == kind)
+
+
+_USES = {
+    "use_ins": "ins",
+    "use_restart": "restart",
+    "use_ctrl": "ctrl",
+    "use_pw": "pw",
+    "use_filter": "filter",
+    "use_phrase": "phrase",
+}
+_SITES = {
+    "ins_ctrl": "ctrl",
+    "ins_restart": "restart",
+    "ins_pw": "pw",
+    "ins_filter": "filter",
+    "def_pw": "pw",
+    "def_filter": "filter",
+    "use_pw": "pw",
+    "use_filter": "filter",
+}
+_KEYS = {"DEF_SIG": "SIGNATURE", "DEF_INS": "INS", "DEF_RESTART": "RESTART", "DEF_CTRL": "CTRL"}
+_KEYS |= {"DEF_PW": "PW", "DEF_FILTER": "FILTER", "DEF_PHRASE": "PHRASE"}
+
+
+def first_uses(tree: Tree):
+    """``(kind, key, body)`` of each definition at its first use in a document parse tree, in
+    reading order: its key a token of its section's key type without the ``=``; a template's
+    kind ``mod`` for a code or expression body, else the program kind of its site."""
+    stack = [(tree, (None, None))]
+    while stack:
+        node, (parent, grand) = stack.pop()
+        if node.data in _USES or node.data == "use_template":
+            key, body = node.children[0], node.children[1]
+            key = Token.new_borrow_pos(_KEYS[key.type], key[:-1], key)
+            if node.data in _USES:
+                kind = _USES[node.data]
+            elif body.data in ("asm", "fexpr"):
+                kind = "mod"
+            elif body.data == "run_program":
+                kind, body = str(body.children[0]), body.children[1]
+            elif (kind := _SITES.get(parent if parent != "modulation" else grand)) is None:
+                raise CanonicalError(f"{key}: a program template stands where a program does")
+            yield kind, key, body
+        stack.extend(
+            (c, (node.data, parent)) for c in reversed(node.children) if isinstance(c, Tree)
+        )
+
+
+def _name(token: Token) -> str:
+    """The name a key or reference token names: a template's without its parameters."""
+    return token.partition("(")[0].rstrip("=")
+
+
+_REFS = frozenset({"INS", "RESTART", "CTRL", "PW", "FILTER", "PHRASE", "CALL"})
+_KINDS = ("mod", "restart", "ins", "ctrl", "pw", "filter", "phrase")
+
+
+def _scope(tree: Tree, uses: list):
+    """CanonicalError where a name is defined twice, or referenced before its definition at its
+    first use; a section's records are defined throughout."""
+    keys = [k for kind in _KINDS for node in _top(tree, f"def_{kind}") for k in node.children[::2]]
+    top, skip = {_name(k) for k in keys}, {id(k) for k in keys}
+    later, defined = {_name(k) for _, k, _ in uses}, set()
+    for token in tree.scan_values(lambda v: v.type in _REFS or v.type in _KEYS):
+        name = _name(token)
+        if token.type in _KEYS:
+            if name in top or name in defined:
+                raise CanonicalError(f"{name} is defined twice")
+            defined.add(name)
+        elif id(token) not in skip and name in later and name not in defined:
+            raise CanonicalError(f"{name} is referenced before its definition")
 
 
 def templates(tree: Tree) -> dict[str, tuple]:
@@ -314,7 +393,7 @@ def templates(tree: Tree) -> dict[str, tuple]:
     names = {n for variables in state(tree).values() for n, _ in variables}
     out = {}
     for key, body in _records(tree):
-        if body.data == "code":
+        if body.data in ("code", "asm"):
             statements = check(Statements().transform(body), names)
             out[declare(key, params(statements), names)[0]] = statements
     return out
@@ -324,13 +403,18 @@ def signatures(tree: Tree) -> dict[str, tuple[str, ...]]:
     """The declared parameters of each template of a document parse tree keyed by its
     signature, checked as :func:`declare` checks them (an expression's parameters are its
     :func:`~unitracker_grammar.expr.params`)."""
-    names = {n for variables in state(tree).values() for n, _ in variables}
-    return dict(declare(key, reads(body), names) for key, body in _records(tree))
+    names, out = {n for variables in state(tree).values() for n, _ in variables}, {}
+    for key, body in _records(tree):
+        name, declared = declare(key, reads(body), names)
+        if name in out:
+            raise CodeError(f"template {name} is defined twice")
+        out[name] = declared
+    return out
 
 
 def reads(body: Tree) -> tuple[str, ...]:
-    """The parameters a template's ``code`` or ``expr`` parse tree reads."""
-    if body.data == "code":
+    """The parameters a template's ``code`` (``asm``) or ``expr`` (``fexpr``) parse tree reads."""
+    if body.data in ("code", "asm"):
         return params(Statements().transform(body))
     return tuple(sorted(expr.params(expr.Nodes().transform(body))))
 
@@ -348,8 +432,10 @@ def _reads(node: Tree, out: list, skip=frozenset(), declared=None) -> list:
                 out.append(str(child))
             elif child.type == "REL_PARAM":
                 out.append(child[1:])
-            elif child.type == "CALL":
-                out.extend(a for a in call(child).args if isinstance(a, str))
+            elif child.type in ("CALL", "ARGS"):
+                out.extend(
+                    a for a in call(f"a{child}"[child.type == "CALL" :]).args if isinstance(a, str)
+                )
         elif id(child) in skip:
             continue
         elif child.data == "fexpr" and node.data in ("cell_value", "modulation"):
@@ -367,14 +453,14 @@ def _reads(node: Tree, out: list, skip=frozenset(), declared=None) -> list:
     return out
 
 
-def program_reads(body: Tree, declared=None) -> tuple[str, ...]:
+def program_reads(body: Tree, declared=None, skip=frozenset()) -> tuple[str, ...]:
     """The parameters a program's parse tree (a ``program`` or a pulse or filter record's
     ``modulation``) reads, in first-use order: a ``PARAM`` where a row takes an integer, a
     relative note's ``+p`` or ``-p``, a call's named arguments and, in a template of
     ``declared`` parameters, a cell value that is a name alone; CodeError where a cell
     expression names one of ``declared`` inside a larger expression, or an inline program reads
-    one."""
-    return tuple(dict.fromkeys(_reads(body, [], declared=declared)))
+    one; the subtrees whose ids are in ``skip`` (templates defined within) left out."""
+    return tuple(dict.fromkeys(_reads(body, [], skip, declared)))
 
 
 def programs(tree: Tree) -> dict[str, tuple[str, tuple[str, ...]]]:
@@ -383,15 +469,17 @@ def programs(tree: Tree) -> dict[str, tuple[str, tuple[str, ...]]]:
     none, nothing outside a program's records reads one, and no two templates, of programs or
     modulators, share a name."""
     out, bodies = {}, set()
+    nested = {id(body) for _, key, body in first_uses(tree) if key.type == "SIGNATURE"}
     for kind in PROGRAM_KINDS:
         for key, body in _records(tree, kind):
             bodies.add(id(body))
-            if key.type == "PROGRAM_SIG":
-                name, declared = declare(key, program_reads(body, signature(key)[1]))
+            if key.type == "SIGNATURE":
+                reads_ = program_reads(body, signature(key)[1], nested - {id(body)})
+                name, declared = declare(key, reads_)
                 if name in out:
                     raise CodeError(f"program template {name} is defined twice")
                 out[name] = (kind, declared)
-            elif used := program_reads(body):
+            elif used := program_reads(body, skip=nested):
                 raise CodeError(f"{key}: reads {list(used)} and declares no parameter")
     if outside := _reads(tree, [], bodies):
         raise CodeError(f"parameters {list(dict.fromkeys(outside))} read outside a template")
@@ -399,3 +487,85 @@ def programs(tree: Tree) -> dict[str, tuple[str, tuple[str, ...]]]:
     if clash := sorted(out.keys() & mods):
         raise CodeError(f"{clash} name both a program and a modulator template")
     return out
+
+
+_CELLS = {"pw": "row_pw", "filter": "row_cut"}
+
+
+def _links(row: Tree) -> list:
+    """The links of a program row's key chain that carry their own key."""
+    return [
+        n
+        for n in row.iter_subtrees_topdown()
+        if n is not row
+        and n.data.startswith("row_")
+        and any(not (isinstance(c, Tree) and c.data.startswith("row_")) for c in n.children)
+    ]
+
+
+def _long(kind: str, body: Tree) -> bool:
+    """Whether a pulse or filter record's ``modulation`` is a program of one row binding the
+    cell's first slot, ``[{pw: b}, end]``, which is written ``b``."""
+    program = body.children[0]
+    if not isinstance(program, Tree) or program.data != "program":
+        return False
+    rows = [c for c in program.children if isinstance(c, Tree)]
+    if len(rows) != 1 or program.children[-1].type != "END":
+        return False
+    links = _links(rows[0])
+    if len(links) != 1 or links[0].data != _CELLS[kind]:
+        return False
+    (value,) = (c.children[0] for c in links[0].children if isinstance(c, Tree))
+    slotted = any(isinstance(c, Token) for c in links[0].children)
+    return not slotted and (isinstance(value, Tree) or value.type == "CALL")
+
+
+def _nodes(tree: Tree, skip: set):
+    """``(node, outside)`` of every subtree of ``tree``, ``outside`` whether it is outside the
+    subtrees whose ids are in ``skip``."""
+    stack = [(tree, True)]
+    while stack:
+        node, outside = stack.pop()
+        outside = outside and id(node) not in skip
+        yield node, outside
+        stack.extend((c, outside) for c in node.children if isinstance(c, Tree))
+
+
+def check_document(tree: Tree) -> Tree:
+    """``tree``, a document's parse tree, if what its grammar cannot say holds, else CodeError
+    or ExpressionError: its state names (:func:`state`), its templates (:func:`templates`,
+    :func:`signatures`, :func:`programs`), its anonymous code bodies (checked as templates,
+    reading no parameter), its tables (every table an expression or code reads is defined),
+    an expression outside a template reads no parameter nor names a template, and a pulse or
+    filter record that is one binding is written as that binding (CanonicalError)."""
+    names = {n for variables in state(tree).values() for n, _ in variables}
+    uses = list(first_uses(tree))
+    _scope(tree, uses)
+    templates(tree)
+    named = signatures(tree).keys() | programs(tree).keys()
+    tables = {"F"} | {str(t) for node in _top(tree, "tables") for t in node.children[::2]}
+    signed = {
+        id(body)
+        for kind in PROGRAM_KINDS
+        for key, body in _records(tree, kind)
+        if key.type == "SIGNATURE"
+    } | {id(body) for kind, key, body in uses if kind == "mod"}
+    for node, outside in _nodes(tree, signed):
+        if node.data == "asm" and outside:
+            statements = check(Statements().transform(node), names)
+            if used := params(statements):
+                raise CodeError(f"{inline(statements)}: an anonymous body reads {list(used)}")
+        elif node.data == "fexpr" and outside:
+            if bound := sorted(expr.params(expr.Nodes().transform(node)) & named):
+                raise expr.ExpressionError(f"{bound}: a template is bound by a call, name(1,-2)")
+            if used := expr.params(expr.Nodes().transform(node)):
+                raise expr.ExpressionError(f"unbound parameters {sorted(used)}")
+        for token in node.children:
+            if getattr(token, "type", "") in ("XTABLE", "TABLE_BYTE"):
+                if token.split(".")[0] not in tables:
+                    raise expr.ExpressionError(f"unknown table {token.split('.')[0]!r}")
+    for kind in _CELLS:
+        for key, body in _records(tree, kind):
+            if _long(kind, body):
+                raise CanonicalError(f"{key}: a program of one binding is written as the binding")
+    return tree

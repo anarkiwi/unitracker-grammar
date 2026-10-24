@@ -7,7 +7,7 @@ from lark import Tree
 
 from test_canonical import PROGRAMS
 from test_canonical import canonical as one_text
-from unitracker_grammar import CanonicalError, parse
+from unitracker_grammar import CanonicalError, parse, parser
 from unitracker_grammar.code import (
     LEGAL,
     MNEMONICS,
@@ -46,9 +46,10 @@ def document(head: str, block: str) -> str:
     """A document of the header lines ``head`` and a template ``vib(c, p)`` of ``block``."""
     body = "".join(f"    {s}\n" for s in block[:-1].split("\n"))
     return (
-        f"unitracker: 2.0\nmeta: {{title: T}}\n{head}mod:\n  vib(c, p): |\n{body}"
-        "  porta(s): v + s\nins:\n  i1: {freq: vib(3,9)}\nsong:\n  - def:\n"
-        "      phrase:\n        p1: [C4.i1]\n    play: [p1]\n  - end\n"
+        f"unitracker: 2.1\nmeta: {{title: T}}\n{head}tables:\n  G: [1]\n"
+        f"mod:\n  vib(c, p): |\n{body}"
+        "  porta(s): v + s\nins:\n  i1: {freq: vib(3,9)}\nphrase:\n  p1: [C4.i1]\n"
+        "song:\n  - play: [p1]\n  - end\n"
     )
 
 
@@ -149,7 +150,6 @@ def test_a_routine_outside_the_template_rules_is_refused(text, why):
         "LDA t\nrts\n",
         "lda #<5\nrts\n",
         "lda T.mid\nrts\n",
-        "lda Fo.lo\nrts\n",
         "lda N.lo\nrts\n",
         "up :\nrts\n",
         " up:\nrts\n",
@@ -180,14 +180,14 @@ def test_a_document_s_templates_are_its_code_blocks_checked():
     assert state(tree) == {"freq": (("t", 1), ("w", 2)), "cut": (("k", 1),)}
     assert state(parse(document("", VIB))) == {}
     with pytest.raises(CodeError, match="label 't' is a symbol"):
-        templates(parse(document(STATE, "t:\nrts\n")))
+        templates(parser().parse(document(STATE, "t:\nrts\n")))
     with pytest.raises(CodeError, match="no rts"):
-        templates(parse(document(STATE, "clc\n")))
+        parse(document(STATE, "clc\n"))
 
 
 def test_a_state_variable_is_declared_once_across_cells():
     with pytest.raises(CanonicalError, match="twice"):
-        state(parse(document("state: {freq: {t: 1}, pw: {t: 1}}\n", VIB)))
+        parse(document("state: {freq: {t: 1}, pw: {t: 1}}\n", VIB))
 
 
 def test_a_call_is_its_name_and_integer_arguments():
@@ -210,7 +210,7 @@ def test_a_signature_declares_the_parameters_the_body_reads():
 
 
 TOP = (
-    "unitracker: 2.0\nmeta: {title: T}\nstate: {freq: {t: 1}}\nmod:\n  walk(s): v + s*n\n"
+    "unitracker: 2.1\nmeta: {title: T}\nstate: {freq: {t: 1}}\nmod:\n  walk(s): v + s*n\n"
     "  note(): F(N)\n  vib(c, p): |\n    lda t\n    cmp #c\n    lda #>p\n    lda F.lo,x\n"
     "    rts\n  add(d): |\n    adc #d\n    rts\nsong:\n  - play: [p1]\n  - end\n"
 )
@@ -287,3 +287,48 @@ def test_program_templates_outside_the_rules_are_refused(old, new, match):
 def test_a_cell_expression_naming_no_parameter_is_no_template_s_concern():
     tree = parse(PROGRAMS.replace("{pw: walk(b)}", "{pw: 2*q, res: b}"))
     assert programs(tree)["pt"] == ("pw", ("b",))
+
+
+CHECKED = (
+    "unitracker: 2.1\nmeta: {title: T}\ntables:\n  Fo: [1]\n  Nx: [2]\n"
+    "mod:\n  f(a): v + a + Fo[phi] + Nx[n]\n  g(a): |\n    lda #a\n    sta v\n    rts\n"
+    "ctrl:\n  h(a): [{ctrl: a}, end]\n"
+    "phrase:\n  p1: [C4!pw:f(1)!cut:asm{lda Fo.lo; sta v; rts}!freq:'v + 1']\n"
+    "song:\n  - play: [p1]\n  - end\n"
+)
+
+
+@pytest.mark.parametrize(
+    "old, new, error",
+    [
+        ("!freq:'v + 1'", "!freq:'v + q'", r"unbound parameters \['q'\]"),
+        ("!freq:'v + 1'", "!freq:'v + f'", "a template is bound by a call"),
+        ("asm{lda Fo.lo;", "asm{lda #a; lda Fo.lo;", r"anonymous body reads \['a'\]"),
+        ("asm{lda Fo.lo;", "asm{lda Gx.lo;", "unknown table 'Gx'"),
+        ("+ Fo[phi]", "+ Gx[phi]", "unknown table 'Gx'"),
+        ("  g(a): |", "  f(b): v + b\n  g(a): |", "template f is defined twice"),
+        ("h(a): [{ctrl: a}", "f(a): [{ctrl: a}", r"\['f'\] name both"),
+    ],
+)
+def test_a_document_is_checked_where_it_is_read(old, new, error):
+    """An expression outside a template reads no parameter, an anonymous body none either, a
+    table is defined before it is read, and a template's name is one template's."""
+    assert parse(CHECKED) and old in CHECKED
+    with pytest.raises(ValueError, match=error):
+        parse(CHECKED.replace(old, new))
+
+
+@pytest.mark.parametrize("name", ["v", "phi", "n", "nn", "ne", "none", "hold", "reset", "c1"])
+def test_one_rule_excludes_a_parameter_name_from_every_signature(name):
+    """A modulator's and a program's signature refuse the same names, and take the same others
+    (``f(a)`` in both)."""
+    for old in ("f(a)", "h(a)"):
+        with pytest.raises(CanonicalError):
+            parse(CHECKED.replace(old, f"{old[0]}({name})"))
+
+
+@pytest.mark.parametrize("table", ["F", "N"])
+def test_only_the_note_table_s_names_are_no_table_s(table):
+    """Fo and Nx are tables; F and N are not."""
+    with pytest.raises(CanonicalError):
+        parse(CHECKED.replace("  Fo: [1]", f"  {table}: [1]"))

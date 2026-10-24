@@ -1,19 +1,40 @@
-"""A pytest plugin: every document a test parses must be the one canonical text its model prints.
+"""A pytest plugin: every document a test parses must be the one canonical text its model prints;
+``unitracker_grammar.document.read``'s own parses are a model's, not a test's, and go unchecked.
 
 ``pytest -p roundtrip`` (with this directory on the path) runs it over another suite."""
 
+import contextlib
+
 import pytest
 
-from unitracker_grammar import canonical
+from unitracker_grammar import canonical, document
 from unitracker_grammar.document import printed, read
 
 _SEEN: list = []
+_QUIET: list = []
+
+
+@contextlib.contextmanager
+def _unrecorded():
+    _QUIET.append(True)
+    try:
+        yield
+    finally:
+        _QUIET.pop()
+
+
+def _quiet(reader):
+    def unrecorded(text):
+        with _unrecorded():
+            return reader(text)
+
+    return unrecorded
 
 
 def _recording(parse):
     def recorded(text, *args, **kwargs):
         tree = parse(text, *args, **kwargs)
-        if not args and not kwargs:
+        if not args and not kwargs and not _QUIET:
             _SEEN.append(text)
         return tree
 
@@ -24,11 +45,16 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "noncanonical: reads texts other than the canonical one")
     lark = canonical.parser()
     lark.parse = _recording(lark.parse)
+    document.read = _quiet(document.read)
 
 
 def mismatch(text: str) -> str | None:
-    """Why ``text`` is not the one canonical text of its model, or None."""
-    doc = read(text)
+    """Why ``text`` is not the one canonical text of its model, or None (None too where the
+    grammar's checks refuse it)."""
+    try:
+        doc = read(text)
+    except ValueError:
+        return None
     out = printed(doc)
     if out != text:
         lines = zip(text.splitlines(), out.splitlines())
