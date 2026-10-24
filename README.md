@@ -25,7 +25,12 @@ code lines at 4, each keyed by its signature (`  vib(l, c, s): |`, `  walk(s): v
 integer arguments in the signature's order without spaces (`pw: walk(-2)`,
 `!tick.freq:vib(0,4,64)`, `slots: {freq: {base: {mod: note()}}}`). The grammar admits every
 version's forms (a row's `mod:` records may also be keyed by a signature): which a version plays
-is the player's to say. Format 1.21's
+is the player's to say. A definition may also stand inline at its one use in place of its name: a
+program after its kind in `run:` and `!run:` (`run: pw[{pw: 5}, end]`, `!run:ctrl[{ctrl: 64},
+end]`), an instrument after an event's note (`C4.{ad: 9, sr: 240}`), a phrase with its transpose
+in a play entry (`play: [[C4, -*3]+2, ~]`) and, wherever a cell is bound, an anonymous code
+body on one line (`asm{lda v; up:; adc #1; sta v; bne up; rts}`, statements separated by `; `);
+a command also binds a quoted expression (`!pw:'v + 40'`). Format 1.21's
 `hold` line names, per cell, the events its modulators hold on (unitracker-player's
 [semantics](https://github.com/anarkiwi/unitracker-player/blob/main/docs/semantics.md)).
 
@@ -97,13 +102,18 @@ of `frequency(k, clock_hz)` for k 0-255.
 code.signature("vib(l, c, s)")            # ('vib', ('l', 'c', 's')), CodeError on a repeat
 code.declare("vib(c)", ("c",), {"t"})      # the signature, if it declares what the body reads
 code.call("vib(0,-4,32)")                  # Call(name='vib', args=(0, -4, 32))
+code.inline(code.read("lda v\nrts\n"))     # 'asm{lda v; rts}', an anonymous body's one text
 code.signatures(parse(text))               # {name: parameters} of its signed templates, checked
 ```
 
 In the parse tree a signed record's key is a `SIGNATURE` token (`vib(l, c, s)`) where a plain
 one's is a `NAME`, a call is one `CALL` token (`vib(0,-4,32)`) where a binding may be a name or
 an expression, and the top-level section is a `mods` tree of `SIGNATURE` tokens each followed by
-its `expr` or `code` tree; `code.templates` keys each by its bare name.
+its `expr` or `code` tree; `code.templates` keys each by its bare name. An inline program is a
+`run_program` (a `PROGRAM_KIND` token, then its `program`), an inline instrument an `instrument`
+where an `INS` token may stand, an inline phrase a `phrase` where a `PHRASE` token may, an
+anonymous body an `asm` tree of `code_*` statements (`code.Statements` reads it as a `code`),
+and a command's quoted expression an `fexpr`.
 
 ## Grammar
 

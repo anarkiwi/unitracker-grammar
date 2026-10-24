@@ -145,13 +145,15 @@ def op(mnemonic: str, operand=None) -> Op:
 
 
 class Statements(Transformer):
-    """The routines of a canonical parse tree (rule ``code`` and its ``code_*`` rules) as tuples
-    of statements, unchecked."""
+    """The routines of a canonical parse tree (rules ``code`` and ``asm`` and their ``code_*``
+    rules) as tuples of statements, unchecked."""
 
     # pylint: disable=missing-function-docstring
 
     def code(self, children):
         return tuple(children)
+
+    asm = code
 
     def code_label(self, children):
         return Label(str(children[0]))
@@ -248,6 +250,12 @@ def line(statement) -> str:
 def printed(statements) -> str:
     """The one text of a routine: its statements' lines, each ending in its newline."""
     return "".join(f"{line(s)}\n" for s in statements)
+
+
+def inline(statements) -> str:
+    """The one text of an anonymous routine: ``asm{`` its statements' lines separated by ``; ``
+    then ``}``."""
+    return "asm{" + "; ".join(line(s) for s in statements) + "}"
 
 
 def canonical(text: str) -> str:

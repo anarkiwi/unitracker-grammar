@@ -3,6 +3,8 @@
 import pytest
 from lark import Token, Tree
 
+from unitracker_grammar import expr
+from unitracker_grammar.code import Statements, inline
 from unitracker_grammar import (
     GRAMMAR,
     NTSC_HZ,
@@ -752,3 +754,64 @@ def test_other_call_spellings_are_refused(defs):
     name that is no NAME and a call where no cell is bound."""
     with pytest.raises(CanonicalError):
         parse(doc(defs))
+
+
+INLINE = (
+    "unitracker: 1.23\nmeta: {title: T}\ninit: [C4.{ad: 1}!pw:'v + 1']\nsong:\n  - def:\n"
+    "      ins:\n        i1: {ctrl: [{ctrl: 65, run: pw[{pw: 5}, end]}, end],"
+    " pw: asm{lda v; up:; adc #1; sta v; bne up; rts}, freq: asm{rts}}\n"
+    "    play: [[C4.{ad: 9, ctrl: [{ctrl: 65}, end]}!run:ctrl[{ctrl: 64}, {loop: 0}]"
+    "!pw:asm{lda T.lo+3,x; sta v; rts}!cut:'min(3, v) + 1'!freq:'F(N) + 2'*2,"
+    " -!run:filter[{cut: 7}, end]]+2]\n"
+    "  - play: [[C4.i1!tick.freq:'2*v'*3]]\n  - end\n"
+)
+
+
+def test_a_definition_stands_inline_where_its_name_does():
+    """A program after its kind in run: and !run:, an instrument after an event's note, a
+    phrase with its transpose in a play entry, an anonymous code body wherever a cell is bound,
+    and a quoted expression in a command."""
+    tree = parse(INLINE)
+    assert [str(n.children[0]) for n in tree.find_data("run_program")] == ["pw", "ctrl", "filter"]
+    assert len(list(tree.find_data("instrument"))) == 3
+    plays = list(tree.find_data("play"))
+    assert [p.children[0].data for p in plays] == ["phrase", "phrase"]
+    assert [str(t) for t in plays[0].children[1:]] == ["+2"]
+    asm = [Statements().transform(n) for n in tree.find_data("asm")]
+    assert sorted(inline(a) for a in asm) == [
+        "asm{lda T.lo+3,x; sta v; rts}",
+        "asm{lda v; up:; adc #1; sta v; bne up; rts}",
+        "asm{rts}",
+    ]
+    commands = [
+        expr.printed(expr.Nodes().transform(f.children[0]))
+        for n in tree.iter_subtrees()
+        if n.data.startswith("cmd_")
+        for f in n.children
+        if isinstance(f, Tree) and f.data == "fexpr"
+    ]
+    assert sorted(commands) == ["2*v", "F(N) + 2", "min(3, v) + 1", "v + 1"]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        INLINE.replace("run:ctrl[", "run:["),
+        INLINE.replace("run: pw[", "run: pw ["),
+        INLINE.replace("run: pw[", "run: c[", 1),
+        INLINE.replace("!pw:'v + 1'", "!pw:v + 1"),
+        INLINE.replace("!freq:'F(N) + 2'", "!freq:F(N)"),
+        INLINE.replace("asm{rts}", "asm{}"),
+        INLINE.replace("asm{rts}", "asm {rts}"),
+        INLINE.replace("asm{rts}", "asm{clc;rts}"),
+        INLINE.replace("asm{rts}", "asm{clc;  rts}"),
+        INLINE.replace("]+2]", "] +2]"),
+        INLINE.replace("C4.{ad: 9,", "C4.{ad:9,"),
+    ],
+)
+def test_other_inline_spellings_are_refused(text):
+    """A program without its kind or spaced from it, an unquoted expression in a command, an
+    empty or spaced code body, a statement separator other than ``; ``, a spaced transpose and
+    an instrument outside the instrument spelling."""
+    with pytest.raises(CanonicalError):
+        parse(text)
