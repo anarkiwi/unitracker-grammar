@@ -557,7 +557,7 @@ def check_document(tree: Tree) -> Tree:
     tables = {"F"} | {str(t) for node in _top(tree, "tables") for t in node.children[::2]}
     signed = {
         id(body)
-        for kind in PROGRAM_KINDS
+        for kind in PROGRAM_KINDS + ("ins",)
         for key, body in _records(tree, kind)
         if key.type == "SIGNATURE"
     } | {id(body) for kind, key, body in uses if kind == "mod"}
@@ -575,14 +575,18 @@ def check_document(tree: Tree) -> Tree:
             if getattr(token, "type", "") in ("XTABLE", "TABLE_BYTE"):
                 if token.split(".")[0] not in tables:
                     raise expr.ExpressionError(f"unknown table {token.split('.')[0]!r}")
+    _short_records(tree)
+    if clash := sorted((named | phrases(tree).keys()) & PRELUDE):
+        raise CodeError(f"{clash} name prelude templates, which a document does not define")
+    return tree
+
+
+def _short_records(tree: Tree):
+    """CanonicalError for a pulse or filter record of one binding not written as it."""
     for kind in _CELLS:
         for key, body in _records(tree, kind):
             if _long(kind, body):
                 raise CanonicalError(f"{key}: a program of one binding is written as the binding")
-    named |= phrases(tree).keys()
-    if clash := sorted(named & PRELUDE):
-        raise CodeError(f"{clash} name prelude templates, which a document does not define")
-    return tree
 
 
 def phrases(tree: Tree) -> dict[str, tuple[str, ...]]:

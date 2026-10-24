@@ -13,7 +13,6 @@ from unitracker_grammar.document import (
     KINDS,
     Call,
     Document,
-    Event,
     Expr,
     Group,
     Instrument,
@@ -86,7 +85,9 @@ def _bound(value, bag: dict):
     if isinstance(value, Expr) and value.text in bag:
         return bag[value.text]
     if isinstance(value, Call):
-        return Call(value.name, tuple(bag.get(a, a) if isinstance(a, str) else a for a in value.args))
+        return Call(
+            value.name, tuple(bag.get(a, a) if isinstance(a, str) else a for a in value.args)
+        )
     if isinstance(value, Once):
         return Once(_bound(value.value, bag))
     if isinstance(value, Instrument):
@@ -120,7 +121,9 @@ def _instruments(doc: Document) -> Document:
 def _with(doc: Document, kind: str, records: list) -> Document:
     """``doc`` with section ``kind``'s records ``records`` (none: no section)."""
     sections = {s.kind: s for s in doc.defs} | {kind: Section(kind, tuple(records))}
-    return replace(doc, defs=tuple(sections[k] for k in KINDS if sections.get(k, Section(k)).records))
+    return replace(
+        doc, defs=tuple(sections[k] for k in KINDS if sections.get(k, Section(k)).records)
+    )
 
 
 def flat(items: tuple) -> tuple:
