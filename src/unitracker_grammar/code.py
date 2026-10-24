@@ -2,7 +2,7 @@
 
 A routine is a tuple of statements, each a :class:`Label` or an :class:`Op`, whose operand is
 ``None`` (implied), an :class:`Imm`, a :class:`Mem` or, for a branch or ``jmp``, a label's name;
-:func:`printed` is its one text. A template's key may be its signature, ``name(a, b)``, which a
+:func:`printed` is its one text. A template's key may be its signature, ``name(a,b)``, which a
 :class:`Call`, ``name(1,-2)``, binds. A program record (``restart``, ``ctrl``, ``pw``, ``filter``)
 may be a template too, keyed by a signature, whose rows read its parameters where they take an
 integer (:func:`programs`).
@@ -44,7 +44,7 @@ LEGAL = frozenset(
     if opcode not in ILLEGAL_OPCODES and how in _MODES and name.lower() not in EXCLUDED
 )
 MNEMONICS = frozenset(m for m, _ in LEGAL)
-_INDENT = " " * 4
+_INDENT = "\t"
 
 
 class CodeError(ValueError):
@@ -72,10 +72,10 @@ def call(text: str) -> Call:
 
 
 def signature(text: str) -> tuple[str, tuple[str, ...]]:
-    """``(name, parameters)`` of a ``SIGNATURE`` text, ``name(a, b)`` or ``name()``;
+    """``(name, parameters)`` of a ``SIGNATURE`` text, ``name(a,b)`` or ``name()``;
     CodeError when a parameter is declared twice."""
     name, names = _CALL.fullmatch(text).groups()
-    declared = tuple(names.split(", ")) if names else ()
+    declared = tuple(names.split(",")) if names else ()
     if len(set(declared)) != len(declared):
         raise CodeError(f"{text}: a parameter declared twice")
     return name, declared
@@ -508,7 +508,7 @@ def _links(row: Tree) -> list:
 
 def _long(kind: str, body: Tree) -> bool:
     """Whether a pulse or filter record's ``modulation`` is a program of one row binding the
-    cell's first slot, ``[{pw: b}, end]``, which is written ``b``."""
+    cell's first slot, ``[{pw:b},end]``, which is written ``b``."""
     program = body.children[0]
     if not isinstance(program, Tree) or program.data != "program":
         return False

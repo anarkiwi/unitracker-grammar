@@ -1,20 +1,25 @@
-// The canonical unitracker document, format 2.1. A document names no player: everything it plays
+// The canonical unitracker document, format 2.2. A document names no player: everything it plays
 // is in it, and its only constants are the note table F(k) (notes.py) at its clock.
-// Whitespace is exact, but a space inside a flow collection or a block scalar may be a line wrap
-// (a newline and the continuation indentation); a flow expression that contains a comma is
-// written in single quotes. Every block line ends with its newline.
-// The definitions are top-level sections, records at 2 spaces: the templates (mod:, keyed by a
-// SIGNATURE, an expression or a code block at 4 spaces), then restart:, ins:, ctrl:, pw:,
-// filter: and phrase:; a song row holds only its play entries. A program record may be a
-// template keyed by a SIGNATURE whose rows read its parameters (PARAM, REL_PARAM, a CALL's
-// names); a CALL binds a template wherever a cell is bound or a program's name stands.
+// Whitespace is exact and there are no line wraps: a block line holds its whole value. No space
+// follows a key's colon or a flow comma; a record is indented by one space, a code block's line
+// by a tab; an event's commands are each introduced by a space. A flow expression that contains a
+// comma is written in single quotes. Every block line ends with its newline.
+// A note is its letter, a sharp's in lower case (c4 is C#4), and its octave; in a phrase a note
+// leaves out its octave where it is the previous note's in that phrase ([C4,E,G,C5]), the first
+// note always written with its octave (canonical.parse writes each note absolute, C#4).
+// The definitions are top-level sections: the templates (mod:, keyed by a SIGNATURE, an
+// expression or a code block), then restart:, ins:, ctrl:, pw:, filter: and phrase:; a song row
+// holds only its play entries. A program record may be a template keyed by a SIGNATURE whose
+// rows read its parameters (PARAM, REL_PARAM, a CALL's names); a CALL binds a template wherever a
+// cell is bound or a program's name stands.
 // A named definition may stand at its first reference instead of in its section, NAME= or a
-// template's SIGNATURE= before its value (use_*). A definition may stand inline at its use: a program after its kind in run: and !run:
-// (ctrl[...]), an instrument after an event's note (C4.{ad: 9}), a phrase in a play entry
-// ([C4, -]+2), and, where a cell is bound, a code body on one line (asm{lda v; sta v+1; rts})
-// or, in a command or a slot's default, a quoted expression ('v + 40').
+// template's SIGNATURE= before its value (use_*). A definition may stand inline at its use: a
+// program after its kind in run: (ctrl[...]), an instrument after an event's note
+// (C4.{ad:9}), a phrase in a play entry ([C4,-]+2), and, where a cell is bound, a code body on
+// one line (asm{lda v; sta v+1; rts}) or, in a command or a slot's default, a quoted expression
+// ('v + 40').
 
-start: "unitracker: 2.1" _NL meta _NL _from_clock? "song:" _NL row+ ending
+start: "unitracker:2.2" _NL meta _NL _from_clock? "song:" _NL row+ ending
 // the optional lines after meta, in order: a chain of rules, each the lines from one on, so
 // that the parser's tables stay linear in their number
 _from_clock: clock _NL _from_voices? | _from_voices
@@ -36,61 +41,61 @@ _from_init: init _NL
 
 // ---- header: clock, voices and tempo only where they differ from PAL, 3 and 6 ---------------
 
-meta: "meta: " _LC meta_item (_SEP meta_item)* "}"
-meta_item: META_KEY ": " text
+meta: "meta:" _LC meta_item (_SEP meta_item)* "}"
+meta_item: META_KEY ":" text
 text: TEXT | SQUOTED | DQUOTED
 
 // the note table's words are rounded to the nearest unless the clock says floor
-clock: "clock: {cycles_per_tick: " INT ", clock_hz: " INT (", rounding: " ROUNDING)? "}"
-voices: "voices: " INT
-tempo: "tempo: " (INT | "[" INT ", " INT "]")
+clock: "clock:{cycles_per_tick:" INT ",clock_hz:" INT (",rounding:" ROUNDING)? "}"
+voices: "voices:" INT
+tempo: "tempo:" (INT | "[" INT "," INT "]")
 
 // per cell, its slots in firing order, each with its default binding and the events it holds
 // and resets on; a cell left out has one slot, named after it, with none
-slots: "slots: " _LC slot_cell (_SEP slot_cell)* "}"
-slot_cell: CELL ": " _LC slot (_SEP slot)* "}"
-slot: NAME ": " _LC slot_mod? "}"
-slot_mod: "mod: " (CALL | asm | qexpr | use_template) (_SEP slot_hold)? | slot_hold
-slot_hold: "hold: " events (_SEP slot_reset)? | slot_reset
-slot_reset: "reset: " events
+slots: "slots:" _LC slot_cell (_SEP slot_cell)* "}"
+slot_cell: CELL ":" _LC slot (_SEP slot)* "}"
+slot: NAME ":" _LC slot_mod? "}"
+slot_mod: "mod:" (CALL | asm | qexpr | use_template) (_SEP slot_hold)? | slot_hold
+slot_hold: "hold:" events (_SEP slot_reset)? | slot_reset
+slot_reset: "reset:" events
 events: _LB HOLD_EVENT (_SEP HOLD_EVENT)* "]"
 
 // the phases of a tick in the order they run, each over the voices in order
-order: "order: " _LB PHASE (_SEP PHASE)* "]"
+order: "order:" _LB PHASE (_SEP PHASE)* "]"
 
 // per cell, in cell order, its state variables in declaration order with their sizes in bytes
-state: "state: " _LC state_freq "}"
-state_freq: "freq: " state_vars (_SEP state_pw)? | state_pw
-state_pw: "pw: " state_vars (_SEP state_cut)? | state_cut
-state_cut: "cut: " state_vars
+state: "state:" _LC state_freq "}"
+state_freq: "freq:" state_vars (_SEP state_pw)? | state_pw
+state_pw: "pw:" state_vars (_SEP state_cut)? | state_cut
+state_cut: "cut:" state_vars
 state_vars: _LC state_var (_SEP state_var)* "}"
-state_var: STATE_NAME ": " STATE_SIZE
+state_var: STATE_NAME ":" STATE_SIZE
 
 // the 25 SID registers' values before tick 0, $D400 first
-regs: "regs: " intlist
+regs: "regs:" intlist
 
 // the tables expressions index as T[k] (0 outside the list) and code reads as T.lo, T.hi
-tables: "tables:" _NL ("  " XTABLE ": " intlist _NL)+
+tables: "tables:" _NL (" " XTABLE ":" intlist _NL)+
 intlist: _LB INT (_SEP INT)* "]"
 
 // ---- definitions --------------------------------------------------------------------------
 
-def_mod: "mod:" _NL ("  " SIGNATURE (": " expr _NL | ": |" _NL code))+
-def_restart: "restart:" _NL ("  " (RESTART | SIGNATURE) ": " program _NL)+
-def_ins: "ins:" _NL ("  " INS ": " instrument _NL)+
-def_ctrl: "ctrl:" _NL ("  " (CTRL | SIGNATURE) ": " program _NL)+
+def_mod: "mod:" _NL (" " SIGNATURE (":" expr _NL | ":|" _NL code))+
+def_restart: "restart:" _NL (" " (RESTART | SIGNATURE) ":" program _NL)+
+def_ins: "ins:" _NL (" " INS ":" instrument _NL)+
+def_ctrl: "ctrl:" _NL (" " (CTRL | SIGNATURE) ":" program _NL)+
 // a pulse or filter record that is one binding is written as that binding
-def_pw: "pw:" _NL ("  " (PW | SIGNATURE) ": " modulation _NL)+
-def_filter: "filter:" _NL ("  " (FILTER | SIGNATURE) ": " modulation _NL)+
-def_phrase: "phrase:" _NL ("  " PHRASE ": " phrase _NL)+
+def_pw: "pw:" _NL (" " (PW | SIGNATURE) ":" modulation _NL)+
+def_filter: "filter:" _NL (" " (FILTER | SIGNATURE) ":" modulation _NL)+
+def_phrase: "phrase:" _NL (" " PHRASE ":" phrase _NL)+
 
 // one event per voice: the state after init, a step of no duration before the first tick
-init: "init: " _LB event (_SEP event)* "]"
+init: "init:" _LB event (_SEP event)* "]"
 
 // ---- timeline -----------------------------------------------------------------------------
 
-row: "  - play: " plays _NL
-ending: "  - end" _NL | "  - {loop: " INT "}" _NL
+row: " - play:" plays _NL
+ending: " - end" _NL | " - {loop:" INT "}" _NL
 plays: _LB play (_SEP play)* "]"
 play: (PHRASE | phrase | use_phrase) SIGNED? | CONT | END
 
@@ -98,13 +103,13 @@ play: (PHRASE | phrase | use_phrase) SIGNED? | CONT | END
 // a cell's keys repeating in the order they apply ----------------------------------------
 
 instrument: _LC ins_ad "}"
-ins_ad: "ad: " INT (_SEP ins_sr)? | ins_sr
-ins_sr: "sr: " INT (_SEP ins_ctrl)? | ins_ctrl
-ins_ctrl: "ctrl: " (CTRL | CALL | program | use_ctrl | use_template) (_SEP ins_pw)? | ins_pw
-ins_pw: SLOT? "pw: " (PW | NONE | modulation | use_pw) (_SEP ins_pw)? | ins_filter
-ins_filter: SLOT? "filter: " (FILTER | NONE | modulation | use_filter) (_SEP ins_filter)? | ins_freq
-ins_freq: SLOT? "freq: " (NONE | _binding) (_SEP ins_freq)? | ins_restart
-ins_restart: "restart: " (RESTART | CALL | program | use_restart | use_template)
+ins_ad: "ad:" INT (_SEP ins_sr)? | ins_sr
+ins_sr: "sr:" INT (_SEP ins_ctrl)? | ins_ctrl
+ins_ctrl: "ctrl:" (CTRL | CALL | program | use_ctrl | use_template) (_SEP ins_pw)? | ins_pw
+ins_pw: SLOT? "pw:" (PW | NONE | modulation | use_pw) (_SEP ins_pw)? | ins_filter
+ins_filter: SLOT? "filter:" (FILTER | NONE | modulation | use_filter) (_SEP ins_filter)? | ins_freq
+ins_freq: SLOT? "freq:" (NONE | _binding) (_SEP ins_freq)? | ins_restart
+ins_restart: "restart:" (RESTART | CALL | program | use_restart | use_template)
 
 // a program: its rows in the order they run, then its end or its loop
 program: _LB (row_ _SEP)* (END | _LC LOOP INT "}") "]"
@@ -113,24 +118,24 @@ _binding: CALL | asm | fexpr | use_template
 _int: INT | PARAM
 
 row_: _LC "}" | _LC row_wait "}"
-row_wait: "wait: " _int (_SEP row_hold)? | row_hold
-row_hold: "hold: " _int (_SEP row_ctrl)? | row_ctrl
-row_ctrl: "ctrl: " _int (_SEP row_mask)? | row_mask
-row_mask: "mask: " _int (_SEP row_gate)? | row_gate
-row_gate: "gate: " _int (_SEP row_note)? | row_note
-row_note: "note: " note_value (_SEP row_ad)? | row_ad
-row_ad: "ad: " _int (_SEP row_sr)? | row_sr
-row_sr: "sr: " _int (_SEP row_pw)? | row_pw
-row_pw: SLOT? "pw: " cell_value (_SEP row_pw)? | row_cut
-row_cut: SLOT? "cut: " cell_value (_SEP row_cut)? | row_res
-row_res: "res: " _int (_SEP row_route)? | row_route
-row_route: "route: " _int (_SEP row_route_on)? | row_route_on
-row_route_on: "route_on: " _int (_SEP row_route_off)? | row_route_off
-row_route_off: "route_off: " _int (_SEP row_mode)? | row_mode
-row_mode: "mode: " _int (_SEP row_freq)? | row_freq
-row_freq: SLOT? "freq: " cell_value (_SEP row_freq)? | row_run
-row_run: "run: " (_program_ref | run_program) (_SEP row_vol)? | row_vol
-row_vol: "vol: " _int
+row_wait: "wait:" _int (_SEP row_hold)? | row_hold
+row_hold: "hold:" _int (_SEP row_ctrl)? | row_ctrl
+row_ctrl: "ctrl:" _int (_SEP row_mask)? | row_mask
+row_mask: "mask:" _int (_SEP row_gate)? | row_gate
+row_gate: "gate:" _int (_SEP row_note)? | row_note
+row_note: "note:" note_value (_SEP row_ad)? | row_ad
+row_ad: "ad:" _int (_SEP row_sr)? | row_sr
+row_sr: "sr:" _int (_SEP row_pw)? | row_pw
+row_pw: SLOT? "pw:" cell_value (_SEP row_pw)? | row_cut
+row_cut: SLOT? "cut:" cell_value (_SEP row_cut)? | row_res
+row_res: "res:" _int (_SEP row_route)? | row_route
+row_route: "route:" _int (_SEP row_route_on)? | row_route_on
+row_route_on: "route_on:" _int (_SEP row_route_off)? | row_route_off
+row_route_off: "route_off:" _int (_SEP row_mode)? | row_mode
+row_mode: "mode:" _int (_SEP row_freq)? | row_freq
+row_freq: SLOT? "freq:" cell_value (_SEP row_freq)? | row_run
+row_run: "run:" (_program_ref | run_program) (_SEP row_vol)? | row_vol
+row_vol: "vol:" _int
 
 note_value: SIGNED | NOTE | REL_PARAM
 cell_value: _binding | NONE | HOLD | RESET
@@ -143,18 +148,18 @@ run_program: PROGRAM_KIND program
 
 phrase: _LB event (_SEP event)* "]"
 event: NOTE_ATOM ("." (INS | instrument | use_ins))? cmd_run keep_pw keep_filter ("*" INT)?
-cmd_run: "!run:" (_program_ref | run_program | NONE) cmd_pw | cmd_pw
+cmd_run: " run:" (_program_ref | run_program | NONE) cmd_pw | cmd_pw
 cmd_pw: CMD_PW (INT | _command) cmd_pw | cmd_ad
-cmd_ad: "!ad:" INT cmd_sr | cmd_sr
-cmd_sr: "!sr:" INT cmd_ctrl | cmd_ctrl
-cmd_ctrl: "!ctrl:" INT cmd_res | cmd_res
-cmd_res: "!res:" INT cmd_route | cmd_route
-cmd_route: "!route:" INT cmd_mode | cmd_mode
-cmd_mode: "!mode:" INT cmd_vol | cmd_vol
-cmd_vol: "!vol:" INT cmd_cut | cmd_cut
+cmd_ad: " ad:" INT cmd_sr | cmd_sr
+cmd_sr: " sr:" INT cmd_ctrl | cmd_ctrl
+cmd_ctrl: " ctrl:" INT cmd_res | cmd_res
+cmd_res: " res:" INT cmd_route | cmd_route
+cmd_route: " route:" INT cmd_mode | cmd_mode
+cmd_mode: " mode:" INT cmd_vol | cmd_vol
+cmd_vol: " vol:" INT cmd_cut | cmd_cut
 cmd_cut: CMD_CUT (INT | _command) cmd_cut | cmd_tempo
-cmd_tempo: "!tempo:" INT ("/" INT)? cmd_vtempo | cmd_vtempo
-cmd_vtempo: "!vtempo:" INT ("/" INT)? cmd_freq | cmd_freq
+cmd_tempo: " tempo:" INT ("/" INT)? cmd_vtempo | cmd_vtempo
+cmd_vtempo: " vtempo:" INT ("/" INT)? cmd_freq | cmd_freq
 cmd_freq: CMD_FREQ (SIGNED | INT | _command) cmd_freq | cmd_legato
 cmd_legato: LEGATO |
 _command: CALL | asm | qexpr | use_template | NONE | HOLD | RESET
@@ -189,7 +194,7 @@ factor: INT | SIGNED | V | PHI | N | EVENT_NOTE | PARAM
 
 // ---- code (unitracker_grammar.code): a label, or a mnemonic with its operand ---------------
 
-code: ("    " (code_label | code_op) _NL)+
+code: ("\t" (code_label | code_op) _NL)+
 // an anonymous code body on one line, its statements separated by "; "
 asm: _ASM (code_label | code_op) ("; " (code_label | code_op))* "}"
 code_label: NAME ":"
@@ -207,9 +212,9 @@ HOLD_EVENT: /(?:step|last|read|note|legato)(?:-[1-9]\d*)?|row(?:\.[a-z]+)?/
 PROGRAM_KIND: /(?:ctrl|pw|filter)(?=\[)/
 _ASM.2: "asm{"
 SLOT: /[a-z][a-z0-9_]*\./
-CMD_PW: /!(?:[a-z][a-z0-9_]*\.)?pw:/
-CMD_CUT: /!(?:[a-z][a-z0-9_]*\.)?cut:/
-CMD_FREQ: /!(?:[a-z][a-z0-9_]*\.)?freq:/
+CMD_PW: / (?:[a-z][a-z0-9_]*\.)?pw:/
+CMD_CUT: / (?:[a-z][a-z0-9_]*\.)?cut:/
+CMD_FREQ: / (?:[a-z][a-z0-9_]*\.)?freq:/
 // a template's parameter: a lowercase name, but a name a template's body or a cell value
 // reads otherwise and a record's name (pw1, c1, f1, ...)
 _PARAM_NAME: /(?!(?:v|phi|n|nn|ne|none|hold|reset|(?:pw|[cfipr])\d+)\b)[a-z][a-z0-9_]*\b/
@@ -219,8 +224,10 @@ REL_PARAM: /[+-]/ _PARAM_NAME
 XTABLE: /(?![FN]\b)[A-Z][A-Za-z]*/
 INT: /0|[1-9]\d*/
 SIGNED: /[+-](?:0|[1-9]\d*)/
-NOTE: /[A-G]#?-?\d+/
-NOTE_ATOM: /[A-G]#?-?\d+|-|off|on/
+// a note: its letter, a sharp's in lower case, and its octave, which a phrase's note may leave
+// out (canonical.parse)
+NOTE: /[A-Gacdfg]-?\d+/
+NOTE_ATOM: /[A-Gacdfg](?:-?\d+)?|-|off|on/
 INS: /i\d+/
 CTRL: /c\d+/
 PW: /pw\d+/
@@ -235,7 +242,7 @@ STATE_NAME: /(?!(?:v|phi|nn|ne|a|x|y)\b)[a-z][a-z0-9_]*/
 STATE_SIZE: /[12]\b/
 TABLE_BYTE: /(?!N\.)[A-Z][A-Za-z]*\.(?:lo|hi)/
 // a template's key, a modulator's or a program's: its name, no record's, and its parameters
-SIGNATURE: /(?!(?:pw|[cfipr])\d+\()[a-z][a-z0-9_]*\(/ (_PARAM_NAME (", " _PARAM_NAME)*)? ")"
+SIGNATURE: /(?!(?:pw|[cfipr])\d+\()[a-z][a-z0-9_]*\(/ (_PARAM_NAME ("," _PARAM_NAME)*)? ")"
 // a call: its arguments integers or, in a program template's rows, its parameters
 CALL: /(?!(?:abs|min|max)\()[a-z][a-z0-9_]*\((?:(?:[+-]?(?:0|[1-9]\d*)|[a-z][a-z0-9_]*)(?:,(?:[+-]?(?:0|[1-9]\d*)|[a-z][a-z0-9_]*))*)?\)/
 DEF_INS.2: /i\d+=/
@@ -253,13 +260,14 @@ BYTE: "<" | ">"
 
 CONT: "~"
 END: "end"
-LOOP: "loop: "
+LOOP: "loop:"
 NONE: "none"
 HOLD: "hold"
 RESET: "reset"
-LEGATO: "!legato"
-KEEP_PW: "!pw"
-KEEP_FILTER: "!filter"
+// an event's flags, each introduced by a space like a command
+LEGATO: / legato(?![\w.:])/
+KEEP_PW: / pw(?![\w.:])/
+KEEP_FILTER: / filter(?![\w.:])/
 V: "v"
 PHI: "phi"
 N: "N"
@@ -272,12 +280,11 @@ NEG: "-"
 MUL: "*"
 
 _NL: "\n"
-// a flow collection may wrap after its opening bracket
-_LB: /\[(?:\n +)?/
-_LC: /\{(?:\n +)?/
-_SEP: /,(?: |\n +)/
+_LB: "["
+_LC: "{"
+_SEP: ","
 
-ADD: /(?: |\n +)[+-](?: |\n +)/
-FLOORDIV: /(?: |\n +)\/\/(?: |\n +)/
-MOD: /(?: |\n +)%(?: |\n +)/
-CMP: /(?: |\n +)(?:==|!=|<=|>=|<|>)(?: |\n +)/
+ADD: / [+-] /
+FLOORDIV: " // "
+MOD: " % "
+CMP: / (?:==|!=|<=|>=|<|>) /

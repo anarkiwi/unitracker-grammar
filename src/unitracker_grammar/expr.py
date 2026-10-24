@@ -170,7 +170,7 @@ def _factor(node) -> str:
         args = [printed(a) for a in node.args]
         if node.func.id in ("min", "max"):
             args.sort(key=_order)
-        return f"{node.func.id}({', '.join(args)})"
+        return f"{node.func.id}({','.join(args)})"
     if isinstance(node, ast.Subscript):
         return f"{node.value.id}[{printed(node.slice)}]"
     if isinstance(node, ast.BinOp):
