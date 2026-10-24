@@ -289,7 +289,7 @@ class Header(_Node):  # pylint: disable=too-many-instance-attributes
 
 
 @dataclass(frozen=True)
-class Document(_Node):
+class Document(_Node):  # pylint: disable=too-many-instance-attributes
     """A whole document: its header, tables ``(name, values)``, top-level templates
     ``(signature, Expr | Code)``, top-level definitions (Sections, or ``{kind: records}``),
     init events (None where not written), timeline rows and ending, ``loop`` the row it loops
