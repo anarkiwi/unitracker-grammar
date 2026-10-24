@@ -290,7 +290,8 @@ def state(tree: Tree) -> dict[str, tuple[tuple[str, int], ...]]:
     CanonicalError when a name is declared twice."""
     cells = {
         node.data[6:]: tuple((str(v.children[0]), int(v.children[1])) for v in child.children)
-        for node in tree.iter_subtrees_topdown()
+        for top in _top(tree, "state")
+        for node in top.iter_subtrees_topdown()
         if node.data in ("state_freq", "state_pw", "state_cut")
         for child in node.children
         if isinstance(child, Tree) and child.data == "state_vars"
@@ -301,10 +302,15 @@ def state(tree: Tree) -> dict[str, tuple[tuple[str, int], ...]]:
     return cells
 
 
+def _top(tree: Tree, data: str) -> list:
+    """The top-level nodes named ``data`` of a document parse tree."""
+    return [c for c in tree.children if isinstance(c, Tree) and c.data == data]
+
+
 def _records(tree: Tree, kind: str = "mod"):
     """``(key, body)`` of each record of a document parse tree's ``kind`` section: a template's
     key a SIGNATURE token and its body a ``code`` or ``expr`` tree."""
-    for node in tree.find_data(f"def_{kind}"):
+    for node in _top(tree, f"def_{kind}"):
         yield from zip(node.children[::2], node.children[1::2])
 
 
@@ -324,8 +330,13 @@ def signatures(tree: Tree) -> dict[str, tuple[str, ...]]:
     """The declared parameters of each template of a document parse tree keyed by its
     signature, checked as :func:`declare` checks them (an expression's parameters are its
     :func:`~unitracker_grammar.expr.params`)."""
-    names = {n for variables in state(tree).values() for n, _ in variables}
-    return dict(declare(key, reads(body), names) for key, body in _records(tree))
+    names, out = {n for variables in state(tree).values() for n, _ in variables}, {}
+    for key, body in _records(tree):
+        name, declared = declare(key, reads(body), names)
+        if name in out:
+            raise CodeError(f"template {name} is defined twice")
+        out[name] = declared
+    return out
 
 
 def reads(body: Tree) -> tuple[str, ...]:
@@ -386,7 +397,7 @@ def programs(tree: Tree) -> dict[str, tuple[str, tuple[str, ...]]]:
     for kind in PROGRAM_KINDS:
         for key, body in _records(tree, kind):
             bodies.add(id(body))
-            if key.type == "PROGRAM_SIG":
+            if key.type == "SIGNATURE":
                 name, declared = declare(key, program_reads(body, signature(key)[1]))
                 if name in out:
                     raise CodeError(f"program template {name} is defined twice")
@@ -399,3 +410,82 @@ def programs(tree: Tree) -> dict[str, tuple[str, tuple[str, ...]]]:
     if clash := sorted(out.keys() & mods):
         raise CodeError(f"{clash} name both a program and a modulator template")
     return out
+
+
+_CELLS = {"pw": "row_pw", "filter": "row_cut"}
+
+
+def _links(row: Tree) -> list:
+    """The links of a program row's key chain that carry their own key."""
+    return [
+        n
+        for n in row.iter_subtrees_topdown()
+        if n is not row
+        and n.data.startswith("row_")
+        and any(not (isinstance(c, Tree) and c.data.startswith("row_")) for c in n.children)
+    ]
+
+
+def _long(kind: str, body: Tree) -> bool:
+    """Whether a pulse or filter record's ``modulation`` is a program of one row binding the
+    cell's first slot, ``[{pw: b}, end]``, which is written ``b``."""
+    program = body.children[0]
+    if not isinstance(program, Tree) or program.data != "program":
+        return False
+    rows = [c for c in program.children if isinstance(c, Tree)]
+    if len(rows) != 1 or program.children[-1].type != "END":
+        return False
+    links = _links(rows[0])
+    if len(links) != 1 or links[0].data != _CELLS[kind]:
+        return False
+    (value,) = (c.children[0] for c in links[0].children if isinstance(c, Tree))
+    slotted = any(isinstance(c, Token) for c in links[0].children)
+    return not slotted and (isinstance(value, Tree) or value.type == "CALL")
+
+
+def _nodes(tree: Tree, skip: set):
+    """``(node, outside)`` of every subtree of ``tree``, ``outside`` whether it is outside the
+    subtrees whose ids are in ``skip``."""
+    stack = [(tree, True)]
+    while stack:
+        node, outside = stack.pop()
+        yield node, outside
+        outside = outside and id(node) not in skip
+        stack.extend((c, outside) for c in node.children if isinstance(c, Tree))
+
+
+def check_document(tree: Tree) -> Tree:
+    """``tree``, a document's parse tree, if what its grammar cannot say holds, else CodeError
+    or ExpressionError: its state names (:func:`state`), its templates (:func:`templates`,
+    :func:`signatures`, :func:`programs`), its anonymous code bodies (checked as templates,
+    reading no parameter), its tables (every table an expression or code reads is defined),
+    an expression outside a template reads no parameter, and a pulse or filter record that is
+    one binding is written as that binding."""
+    names = {n for variables in state(tree).values() for n, _ in variables}
+    templates(tree)
+    signatures(tree)
+    programs(tree)
+    tables = {"F"} | {str(t) for node in _top(tree, "tables") for t in node.children[::2]}
+    signed = {
+        id(body)
+        for kind in PROGRAM_KINDS
+        for key, body in _records(tree, kind)
+        if key.type == "SIGNATURE"
+    }
+    for node, outside in _nodes(tree, signed):
+        if node.data == "asm":
+            statements = check(Statements().transform(node), names)
+            if used := params(statements):
+                raise CodeError(f"{inline(statements)}: an anonymous body reads {list(used)}")
+        elif node.data == "fexpr" and outside:
+            if used := expr.params(expr.Nodes().transform(node)):
+                raise expr.ExpressionError(f"unbound parameters {sorted(used)}")
+        for token in node.children:
+            if getattr(token, "type", "") in ("XTABLE", "TABLE_BYTE"):
+                if token.split(".")[0] not in tables:
+                    raise expr.ExpressionError(f"unknown table {token.split('.')[0]!r}")
+    for kind in _CELLS:
+        for key, body in _records(tree, kind):
+            if _long(kind, body):
+                raise CanonicalError(f"{key}: a program of one binding is written as the binding")
+    return tree

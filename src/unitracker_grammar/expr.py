@@ -1,7 +1,7 @@
 """Modulator expressions: checked, printed in their one text and compiled to Python.
 
 Integer literals, ``+ - *``, ``//`` (floor division), ``%`` (floor modulo), ``abs``, ``min``,
-``max``, a comparison ``(a op b)`` as 1 or 0 (op one of ``== != < <= > >=``), ``v``, ``φ``,
+``max``, a comparison ``(a op b)`` as 1 or 0 (op one of ``== != < <= > >=``), ``v``, ``phi``,
 ``N`` (the sounding note), ``n`` (the event note), ``F(k)`` (the frequency of note k) and
 ``T[k]`` for a named table ``T``; a template also reads named parameters, lowercase names
 :func:`bind` replaces with integers. An expression is a stdlib :mod:`ast` node, read from a
@@ -14,8 +14,7 @@ import functools
 
 from lark import Token, Transformer
 
-PHI = "φ"
-NAMES = {"v": "v", PHI: "phi", "N": "N", "n": "n"}
+NAMES = ("v", "phi", "N", "n")
 CALLS = {"abs": 1, "min": 2, "max": 2, "F": 1}
 _CALLED = {"F": "_F"}
 _BINARY = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.FloorDiv: "//", ast.Mod: "%"}
@@ -23,7 +22,7 @@ _COMPARE = {ast.Eq: "==", ast.NotEq: "!=", ast.Lt: "<", ast.LtE: "<=", ast.Gt: "
 _OPERATOR = {text: op for op, text in (_BINARY | _COMPARE).items()}
 _GUARDED = {"//": "_div", "%": "_mod"}
 _PARAMS = "v, phi, N, n=0"
-_ATOMS = {"V": "v", "PHI": PHI, "N": "N", "EVENT_NOTE": "n"}
+_ATOMS = ("V", "PHI", "N", "EVENT_NOTE")
 
 
 class ExpressionError(ValueError):
@@ -50,7 +49,7 @@ def _python(node, tables, zero: bool) -> str:
     if isinstance(node, ast.Name):
         if node.id not in NAMES:
             raise ExpressionError(f"unbound parameter {node.id!r}")
-        return NAMES[node.id]
+        return node.id
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         return f"(-{_python(node.operand, tables, zero)})"
     if isinstance(node, ast.BinOp) and type(node.op) in _BINARY:
@@ -251,7 +250,7 @@ def compile_expr(expr: str | ast.expr, namespace: dict, zero: bool = False):
 
 
 def _named(node) -> list:
-    """The parameter nodes of an expression node: its names but ``v``, ``φ``, ``N``, ``n`` and
+    """The parameter nodes of an expression node: its names but ``v``, ``phi``, ``N``, ``n`` and
     the names of its calls and tables."""
     skip = {id(n.func) for n in ast.walk(node) if isinstance(n, ast.Call)}
     skip |= {id(n.value) for n in ast.walk(node) if isinstance(n, ast.Subscript)}
@@ -320,9 +319,7 @@ class Nodes(Transformer):
             return ast.Compare(head, [_OPERATOR[rest[0].strip()]()], [rest[1]])
         if head.type in ("INT", "SIGNED"):
             return ast.Constant(int(head))
-        if head.type in _ATOMS:
-            return ast.Name(_ATOMS[head.type])
-        if head.type == "PARAM":
+        if head.type in _ATOMS or head.type == "PARAM":
             return ast.Name(str(head))
         if head.type == "XTABLE":
             return ast.Subscript(ast.Name(str(head)), rest[0])

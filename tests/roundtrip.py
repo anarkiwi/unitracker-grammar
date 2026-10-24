@@ -2,18 +2,31 @@
 
 ``pytest -p roundtrip`` (with this directory on the path) runs it over another suite."""
 
+import contextlib
+
 import pytest
 
 from unitracker_grammar import canonical
 from unitracker_grammar.document import printed, read
 
 _SEEN: list = []
+_QUIET: list = []
+
+
+@contextlib.contextmanager
+def unrecorded():
+    """Parses within it are a helper's, not a test's: not checked."""
+    _QUIET.append(True)
+    try:
+        yield
+    finally:
+        _QUIET.pop()
 
 
 def _recording(parse):
     def recorded(text, *args, **kwargs):
         tree = parse(text, *args, **kwargs)
-        if not args and not kwargs:
+        if not args and not kwargs and not _QUIET:
             _SEEN.append(text)
         return tree
 
@@ -27,8 +40,12 @@ def pytest_configure(config):
 
 
 def mismatch(text: str) -> str | None:
-    """Why ``text`` is not the one canonical text of its model, or None."""
-    doc = read(text)
+    """Why ``text`` is not the one canonical text of its model, or None (None too where the
+    grammar's checks refuse it)."""
+    try:
+        doc = read(text)
+    except ValueError:
+        return None
     out = printed(doc)
     if out != text:
         lines = zip(text.splitlines(), out.splitlines())

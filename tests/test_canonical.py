@@ -2,6 +2,7 @@
 
 import pytest
 from lark import Token, Tree
+from roundtrip import unrecorded
 
 from unitracker_grammar import expr
 from unitracker_grammar.code import Statements, inline
@@ -17,7 +18,7 @@ from unitracker_grammar import (
     table,
 )
 
-HEADER = "unitracker: 2.0\nmeta: {title: T, author: A}\n"
+HEADER = "unitracker: 2.1\nmeta: {title: T, author: A}\n"
 INS = "ins:\n  i1: "
 
 
@@ -27,18 +28,21 @@ def doc(
     play: str = "[p1, p1, p1]",
     ending: str = "  - {loop: 0}",
 ) -> str:
-    """A document of the lines ``top`` between its meta and its song, and one row defining
-    phrase ``p1`` and ``phrases``, in its one canonical text where it is in the grammar."""
-    phrase = f"      phrase:\n        p1: [C4.i1, -*3]\n{phrases}"
-    return canonical(f"{HEADER}{top}song:\n  - def:\n{phrase}    play: {play}\n{ending}\n")
+    """A document of the lines ``top`` between its meta and its song, its phrase section,
+    phrase ``p1`` and ``phrases``, before ``top``'s init line, in its one canonical text where
+    it is in the grammar."""
+    head, init, tail = top.partition("init: ")
+    phrase = f"phrase:\n  p1: [C4.i1, -*3]\n{phrases}"
+    return canonical(f"{HEADER}{head}{phrase}{init}{tail}song:\n  - play: {play}\n{ending}\n")
 
 
 def canonical(text: str) -> str:
     """The one canonical text of a document's ``text``, or ``text`` outside the grammar."""
-    try:
-        return printed(read(text))
-    except ValueError:
-        return text
+    with unrecorded():
+        try:
+            return printed(read(text))
+        except ValueError:
+            return text
 
 
 def chain(tree: Tree, prefix: str) -> list[tuple[str, list[str]]]:
@@ -71,17 +75,19 @@ CASES = [
     ("restart:\n  r1: [{hold: 2, gate: 0, ad: 15, sr: 0}, {ctrl: 9}, end]\n" + INS)
     + "{ad: 1, sr: 2, ctrl: [{ctrl: 65, note: +0}, {wait: 2, ctrl: 17, note: C5}, {loop: 1}],"
     " pw: 2048, restart: r1}\n",
-    INS + "{filter: [{cut: '-12*min(1, max(0, φ - 5)) + 512', res: 15, route: +, mode: 16},"
+    INS + "{filter: [{cut: '-12*min(1, max(0, phi - 5)) + 512', res: 15, route_on: 0, mode: 16},"
     " {hold: 5}, {}, {loop: 2}]}\n",
-    f"mod:\n  wrap(): {WRAP}\n" + INS + "{pw: 16*abs((φ - 32) % 128 - 64) + 512, freq: v - 139}\n",
-    INS + "{ctrl: c1, filter: f1}\nctrl:\n  c1: [{ctrl: 129^8, note: G#5}, end]\n"
+    f"mod:\n  wrap(): {WRAP}\n"
+    + INS
+    + "{pw: 16*abs((phi - 32) % 128 - 64) + 512, freq: v - 139}\n",
+    INS + "{ctrl: c1, filter: f1}\nctrl:\n  c1: [{ctrl: 129, mask: 8, note: G#5}, end]\n"
     "pw:\n  pw1: [{pw: none}, {run: c1}, end]\nfilter:\n  f1: 1024\n",
-    INS + "{pw: 95*φ\n    + 296, restart: [{hold: 3, ctrl: ^8, gate: 0}, {},\n    end]}\n",
+    INS + "{pw: 95*phi\n    + 296, restart: [{hold: 3, mask: 8, gate: 0}, {},\n    end]}\n",
 ]
 COMMANDS = (
-    "        p2: [C4.i1!run:c1!ad:1!sr:2!ctrl:65!resfilt:15/1!mode:16!vol:15!cut:wrap()!tempo:6/7"
-    "!vtempo:8!freq:wrap()!legato!pw!filter*2, -!pw:none!cut:none!filter, -!freq:hold,\n"
-    "          off!cut:80, on!freq:none, B-1!freq:-139, C10!pw:256, -!pw:wrap()!cut:512]\n"
+    "  p2: [C4.i1!run:c1!ad:1!sr:2!ctrl:65!res:15!route:1!mode:16!vol:15!cut:wrap()!tempo:6/7"
+    "!vtempo:8!freq:wrap()!legato!pw!filter*2,\n    -!pw:none!cut:none!filter, -!freq:hold,"
+    " off!cut:80, on!freq:none, B-1!freq:-139, C10!pw:256, -!pw:wrap()!cut:512]\n"
 )
 
 
@@ -103,7 +109,8 @@ def test_the_commands_are_one_chain_in_vocabulary_order():
         ("cmd_ad", ["1"]),
         ("cmd_sr", ["2"]),
         ("cmd_ctrl", ["65"]),
-        ("cmd_resfilt", ["15", "1"]),
+        ("cmd_res", ["15"]),
+        ("cmd_route", ["1"]),
         ("cmd_mode", ["16"]),
         ("cmd_vol", ["15"]),
         ("cmd_cut", ["!cut:", "wrap()"]),
@@ -131,7 +138,7 @@ def test_each_modulated_cell_takes_none_and_hold_as_a_row_key_and_a_command(cell
     """``none`` and ``hold`` are one keyword each, the same for freq, pw and cut, in a program
     row and in a command."""
     tree = parse(
-        doc(INS + f"{{ctrl: [{{{cell}: {stop}}}, end]}}\n", f"        p2: [C4.i1!{cell}:{stop}]\n")
+        doc(INS + f"{{ctrl: [{{{cell}: {stop}}}, end]}}\n", f"  p2: [C4.i1!{cell}:{stop}]\n")
     )
     row = first(first(tree, f"row_{cell}"), "cell_value")
     command = next(n for n in tree.find_data(f"cmd_{cell}") if isinstance(n.children[0], Token))
@@ -181,11 +188,11 @@ REFUSED = [
     (doc(INS + "{sr: 2, ad: 1}\n"), 4, 15),
     (doc(INS + "{ctrl: [{note: C4, ctrl: 65}, end]}\n"), 4, 26),
     (doc("ins:\n   i1: {ad: 1}\n"), 4, 3),
-    (doc(phrases="        p2: [C4!legato!freq:1]\n"), 7, 23),
-    (doc(phrases="        p2: [C4 .i1]\n"), 7, 16),
+    (doc(phrases="  p2: [C4!legato!freq:1]\n"), 5, 17),
+    (doc(phrases="  p2: [C4 .i1]\n"), 5, 10),
     (doc(INS + "{pw: v+1}\n"), 4, 13),
     (doc("vinit:\n  0: {pw: 256}\n"), 3, 1),
-    (doc(ending="  - loop: 0"), 8, 1),
+    (doc(ending="  - loop: 0"), 7, 1),
     (HEADER.replace("meta", "title") + "song:\n  - end\n", 2, 1),
     (HEADER.replace("meta", "playroutine: {ref: goattracker2}\nmeta") + "song:\n  - end\n", 2, 1),
     (doc("tables:\n  ftab: [1, 2]\n"), 4, 3),
@@ -202,35 +209,38 @@ def test_other_spellings_are_refused_at_their_place(text, line, column):
 
 
 BASE = (
-    "unitracker: 2.0\nmeta: {title: T}\ntempo: 3\nslots: {pw: {a: {mod: m()}}}\n"
+    "unitracker: 2.1\nmeta: {title: T}\ntempo: 3\nslots: {pw: {a: {mod: m()}}}\n"
     "mod:\n  m(): v + 1\n  porta(s): v + s\n"
     "ins:\n  i1: {ad: 9, pw: m(), freq: porta(3)}\n"
     "ctrl:\n  arp(a, b): [{ctrl: a, note: +b}, {run: arp(a,b)}, end]\n"
-    "pw:\n  pt(b): [{pw: b}, end]\n"
-    "song:\n  - def:\n      phrase:\n        p1: [C4.i1!run:arp(7,4)!freq:+3, -!cut:m()]\n"
-    "    play: [p1]\n  - end\n"
+    "pw:\n  pt(b): b\n"
+    "phrase:\n  p1: [C4.i1!run:arp(7,4)!freq:+3, -!cut:m()]\n"
+    "song:\n  - play: [p1]\n  - end\n"
 )
 
 
 @pytest.mark.parametrize(
     "old, new",
     [
-        ("unitracker: 2.0", "unitracker: 1.23"),
-        ("unitracker: 2.0", "unitracker: 2.1"),
-        ("unitracker: 2.0", "unitracker: 2"),
+        ("unitracker: 2.1", "unitracker: 1.23"),
+        ("unitracker: 2.1", "unitracker: 2.0"),
+        ("unitracker: 2.1", "unitracker: 2"),
         ("tempo: 3\n", "tempo: 3\nhold: {freq: [step-1, row]}\n"),
         ("pw:\n  pt(b)", "x:\n  x1: v + 1\npw:\n  pt(b)"),
-        ("      phrase:\n", "      x:\n        x1: v + 1\n      phrase:\n"),
+        ("phrase:\n", "x:\n  x1: v + 1\nphrase:\n"),
         ("!freq:+3", "!freq:x1"),
         ("freq: porta(3)}", "freq: porta {s: 3}}"),
         ("freq: porta(3)}", "mod: ramp {step: 2}}"),
         ("freq: porta(3)}", "mod: ramp}"),
         ("!freq:+3", "!freq:+3!set step 4"),
         ("-!cut:m()", "-!filter:none"),
-        ("[{pw: b}, end]", "[{pw: b}, {filter: none}, end]"),
-        ("      phrase:\n", "      ins:\n        i2: {ad: 1}\n      phrase:\n"),
-        ("      phrase:\n", "      mod:\n        n(): v\n      phrase:\n"),
-        ("      phrase:\n", "      ctrl:\n        c1: [end]\n      phrase:\n"),
+        ("pt(b): b", "pt(b): [{pw: b}, {filter: none}, end]"),
+        ("  - play: [p1]", "  - def:\n      ins:\n        i2: {ad: 1}\n    play: [p1]"),
+        ("  - play: [p1]", "  - def:\n      phrase:\n        p2: [C4]\n    play: [p1]"),
+        ("phrase:\n  p1", "mod:\n  n(): v\nphrase:\n  p1"),
+        ("m(): v + 1", "m(): v + φ"),
+        ("!freq:+3", "!freq:+3!resfilt:1/2"),
+        ("pt(b): b", "pt(b): [{pw: b}, end]"),
         ("  porta(s): v + s\n", "  porta: v + 1\n"),
         ("{mod: m()}", "{mod: m}"),
         ("{run: arp(a,b)}", "{run: ctrl:arp(a,b)}"),
@@ -241,10 +251,10 @@ BASE = (
     ],
 )
 def test_the_constructs_of_earlier_formats_are_refused(old, new):
-    """Any version but 2.0, the hold line, x sections and instances, parameter bags, instrument
-    shapes, !set, !filter:none and a row's filter key, a row's definitions but its phrases, a
-    template keyed by its name or named as a slot default, a run's kind before a call, and an
-    integer with a leading zero."""
+    """Any version but 2.1, the hold line, x sections and instances, parameter bags, instrument
+    shapes, !set, !filter:none and a row's filter key, a song row's definitions, a section out
+    of its order, a template keyed by its name or named as a slot default, a run's kind before a
+    call, an integer with a leading zero, φ, !resfilt and a pulse program of one binding."""
     assert old in BASE and parse(BASE)
     with pytest.raises(CanonicalError):
         parse(BASE.replace(old, new))
@@ -254,7 +264,6 @@ def test_the_operators_and_keywords_are_in_the_tree():
     """The operators, keywords and keep flags are tokens of the tree, and layout is not."""
     extra = [
         doc("mod:\n  neg(): -(9 // 2)\n", play="[p1, ~, end]"),
-        *(doc(INS + "{ctrl: [{route: " + r + "}, end]}\n") for r in ("+ 3", "'-'", "'- 3'")),
     ]
     trees = [parse(doc(INS + "{ad: 1}\n", COMMANDS))] + [parse(doc(t)) for t in CASES]
     trees += [parse(t) for t in extra]
@@ -267,7 +276,7 @@ def test_the_operators_and_keywords_are_in_the_tree():
         ("MOD", "%"),
         ("CMP", "<"),
         ("V", "v"),
-        ("PHI", "φ"),
+        ("PHI", "phi"),
         ("N", "N"),
         ("F", "F("),
         ("ABS", "abs("),
@@ -282,13 +291,9 @@ def test_the_operators_and_keywords_are_in_the_tree():
         ("LEGATO", "!legato"),
         ("KEEP_PW", "!pw"),
         ("KEEP_FILTER", "!filter"),
-        ("ROUTE_ADD", "+"),
-        ("ROUTE_ADD_MASK", "+"),
-        ("ROUTE_REMOVE", "'-'"),
-        ("ROUTE_REMOVE_MASK", "'-"),
     } <= tokens
     assert not {t for t, _ in tokens} & {"_NL", "_LB", "_LC", "_SEP"}
-    assert [[str(c) for c in p.children] for p in first(trees[-4], "plays").children] == [
+    assert [[str(c) for c in p.children] for p in first(trees[-1], "plays").children] == [
         ["p1"],
         ["~"],
         ["end"],
@@ -321,8 +326,8 @@ SLOTS = (
     " pw: {pulse: {hold: [read, note-1, last-1]}}, cut: {filter: {}}}\n"
 )
 TEMPLATES = (
-    "mod:\n  note(): (φ < 1)*G[N % 128] + v*(φ >= 1)\n  porta(s): v + s\n"
-    "  walk(d, abs_d): v*(1 - min(φ, abs_d)) + abs(d - n)\n"
+    "tables:\n  G: [1]\nmod:\n  note(): (phi < 1)*G[N % 128] + v*(phi >= 1)\n  porta(s): v + s\n"
+    "  walk(d, abs_d): v*(1 - min(phi, abs_d)) + abs(d - n)\n"
 )
 
 
@@ -408,7 +413,7 @@ def test_a_slot_prefix_names_the_slot_a_row_field_or_command_binds():
             SLOTS + TEMPLATES + INS + "{ctrl: [{pw: 1, pulse.pw: porta(3), filter.cut: none,"
             " wave.freq: v + n, tick.freq: porta(-3)}, {cut: v + 40, freq: hold}, end], pw: pw1,"
             " filter: porta(1), freq: F(n), wave.freq: note(), tick.freq: none}\n",
-            "        p2: [C4.i1!pw:5!pulse.pw:none!filter.cut:porta(1)!freq:+3"
+            "  p2: [C4.i1!pw:5!pulse.pw:none!filter.cut:porta(1)!freq:+3"
             "!tick.freq:porta(2)!wave.freq:hold!legato, -!pw:2!pw]\n",
         )
     )
@@ -464,9 +469,9 @@ def test_a_slot_prefix_names_the_slot_a_row_field_or_command_binds():
         (INS + "{ctrl: [{a. pw: 1}, end]}\n", ""),
         (INS + "{ctrl: [{freq: 1, pw: 2}, end]}\n", ""),
         (INS + "{a.ad: 1}\n", ""),
-        ("", "        p2: [C4!a.tempo:3]\n"),
-        ("", "        p2: [C4!a.pw]\n"),
-        ("", "        p2: [C4!pw:porta]\n"),
+        ("", "  p2: [C4!a.tempo:3]\n"),
+        ("", "  p2: [C4!a.pw]\n"),
+        ("", "  p2: [C4!pw:porta]\n"),
         ("mod:\n  Porta(s): v\n", ""),
         ("mod:\n  porta(): pw1 + v\n", ""),
     ],
@@ -552,7 +557,7 @@ def test_other_state_spellings_are_refused(top):
 
 
 MODS = (
-    "tables:\n  G: [1]\nmod:\n  note(): (φ < 1)*F(N) + v*(φ >= 1)\n  porta(s, d): v + s - d\n"
+    "tables:\n  G: [1]\nmod:\n  note(): (phi < 1)*F(N) + v*(phi >= 1)\n  porta(s, d): v + s - d\n"
     "  vib(c): |\n    lda t\n    bmi up\n    cmp #c\n    adc #>c\n    sta G.lo+3,x\n"
     "    lda F.hi,x\n    up:\n    rts\n"
 )
@@ -593,7 +598,7 @@ def test_the_mod_section_holds_signed_templates_after_the_tables():
         MODS.replace("  note()", "    note()"),
         MODS.replace("porta(s, d)", "porta(s,d)"),
         MODS.replace("porta(s, d)", "porta(s,  d)"),
-        MODS.replace("porta(s, d)", "porta(x, d)"),
+        MODS.replace("porta(s, d)", "porta(n, d)"),
         MODS.replace("porta(s, d)", "porta( )"),
         MODS.replace("porta(s, d)", "Porta(s, d)"),
         "mod:\n  vib(): |\n",
@@ -622,7 +627,7 @@ def test_a_call_binds_a_cell_wherever_a_template_did():
             + INS
             + "{ctrl: [{pw: walk(-2), tick.freq: vib(0,4,32)}, end], pw: walk(1),"
             " filter: walk(0), freq: abs(3), wob.freq: vib(1,+2,3)}\npw:\n  pw1: walk(5)\n",
-            "        p2: [C4.i1!pw:walk(3)!cut:walk(1)!wob.freq:vib(0,-4,5)!freq:note()]\n",
+            "  p2: [C4.i1!pw:walk(3)!cut:walk(1)!wob.freq:vib(0,-4,5)!freq:note()]\n",
         )
     )
     calls = [str(t) for t in tree.scan_values(lambda v: v.type == "CALL")]
@@ -649,8 +654,8 @@ def test_a_call_binds_a_cell_wherever_a_template_did():
         (INS + "{pw: walk(1,)}\n", ""),
         (INS + "{pw: walk (1)}\n", ""),
         (INS + "{pw: Walk(1)}\n", ""),
-        ("", "        p2: [C4!pw:walk(1, 2)]\n"),
-        ("", "        p2: [C4!ad:walk(1)]\n"),
+        ("", "  p2: [C4!pw:walk(1, 2)]\n"),
+        ("", "  p2: [C4!ad:walk(1)]\n"),
     ],
 )
 def test_other_call_spellings_are_refused(top, phrases):
@@ -661,7 +666,7 @@ def test_other_call_spellings_are_refused(top, phrases):
 
 
 INLINE = canonical(
-    "unitracker: 2.0\nmeta: {title: T}\n"
+    "unitracker: 2.1\nmeta: {title: T}\ntables:\n  T: [1]\n"
     "ins:\n  i1: {ctrl: [{ctrl: 65, run: pw[{pw: 5}, end]}, end],"
     " pw: asm{lda v; up:; adc #1; sta v; bne up; rts}, freq: asm{rts}}\n"
     "init: [C4.{ad: 1}!pw:'v + 1']\nsong:\n"
@@ -729,17 +734,16 @@ def test_other_inline_spellings_are_refused(text):
 
 
 PROGRAMS = (
-    "unitracker: 2.0\nmeta: {title: T}\nmod:\n  walk(s): v + s\n"
+    "unitracker: 2.1\nmeta: {title: T}\nmod:\n  walk(s): v + s\n"
     "restart:\n  hr(h, ad, sr): [{hold: h, gate: 0, ad: ad, sr: sr}, end]\n"
     "ins:\n  i1: {ad: 9, ctrl: arp(7,-4), pw: pt(3), filter: fl(5), restart: hr(2,9,220)}\n"
     "ctrl:\n  arp(a, b): [{ctrl: a, note: +a}, {wait: a, gate: b, note: -b,"
     " run: pt(b)}, {run: fl(a)}, {loop: 0}]\n"
-    "  c1: [{ctrl: 129^8, route: 3, freq: v + 1}, end]\n"
+    "  c1: [{ctrl: 129, mask: 8, route: 3, freq: v + 1}, end]\n"
     "pw:\n  pt(b): [{pw: walk(b)}, {pw: b, res: b, route: b, mode: b, vol: b}, end]\n"
     "  pw1: pt(4)\nfilter:\n  fl(c): c\n"
-    "song:\n  - def:\n"
-    "      phrase:\n        p1: [C4.i1!run:arp(1,2), -!run:c1, D4.{ctrl: arp(0,0)}]\n"
-    "    play: [p1]\n  - end\n"
+    "phrase:\n  p1: [C4.i1!run:arp(1,2), -!run:c1, D4.{ctrl: arp(0,0)}]\n"
+    "song:\n  - play: [p1]\n  - end\n"
 )
 
 
@@ -751,9 +755,9 @@ def test_a_program_record_may_be_a_template_whose_rows_read_its_parameters():
     sigs = [
         (s.data, str(t))
         for s in tree.children
-        if isinstance(s, Tree)
+        if isinstance(s, Tree) and s.data != "def_mod"
         for t in s.children
-        if isinstance(t, Token) and t.type == "PROGRAM_SIG"
+        if isinstance(t, Token) and t.type == "SIGNATURE"
     ]
     assert sigs == [
         ("def_restart", "hr(h, ad, sr)"),
@@ -772,7 +776,7 @@ def test_a_program_record_may_be_a_template_whose_rows_read_its_parameters():
         ("row_hold", "h"),
         ("row_ad", "ad"),
         ("row_sr", "sr"),
-        ("ctrl_value", "a"),
+        ("row_ctrl", "a"),
         ("note_value", "+a"),
         ("row_wait", "a"),
     ]
@@ -780,7 +784,7 @@ def test_a_program_record_may_be_a_template_whose_rows_read_its_parameters():
         "row_gate",
         "note_value",
         "row_res",
-        "route_value",
+        "row_route",
         "row_mode",
         "row_vol",
     ]
@@ -811,8 +815,9 @@ def test_a_program_record_may_be_a_template_whose_rows_read_its_parameters():
         ("note: +a", "note: + a"),
         ("note: +a", "note: a"),
         ("{loop: 0}", "{loop: a}"),
-        ("route: 3", "route: + a"),
-        ("ctrl: 129^8", "ctrl: 129^a"),
+        ("route: 3", "route: +a"),
+        ("ctrl: 129, mask: 8", "ctrl: 129^8"),
+        ("mask: 8, route: 3", "mask: 8, route: '-'"),
         ("run: pt(b)", "run: pt (b)"),
         ("!run:arp(1,2)", "!run: arp(1,2)"),
         ("pw: pt(3)", "pw: pt(3, 4)"),
@@ -822,22 +827,31 @@ def test_a_program_record_may_be_a_template_whose_rows_read_its_parameters():
 def test_other_program_template_spellings_are_refused(old, new):
     """A signature's parameters separated by ", " and none a name a cell value means otherwise
     (v, n, none, hold) nor a record's; a relative note's sign before the name; a loop row, a
-    route's mask and a control mask literal; a run spaced from its call; a call spaced."""
+    route's sign and the earlier control mask and route forms; a run spaced from its call; a
+    call spaced."""
     assert old in PROGRAMS
     with pytest.raises(CanonicalError):
         parse(PROGRAMS.replace(old, new))
 
 
 def test_the_definitions_are_top_level_sections_after_the_templates():
-    """restart, ins, ctrl, pw and filter sections, each optional and in that order, stand after
-    the mod section and before init, records at 2 spaces, each a ``def_KIND`` tree; a row's
-    def: holds its phrases."""
+    """restart, ins, ctrl, pw, filter and phrase sections, each optional and in that order,
+    stand after the mod section and before init, records at 2 spaces, each a ``def_KIND`` tree;
+    a song row holds its play entries alone."""
     tree = parse(PROGRAMS.replace("song:", "init: [C4.i1]\nsong:"))
     top = [c.data for c in tree.children if isinstance(c, Tree) and c.data.startswith("def_")]
-    assert top == ["def_mod", "def_restart", "def_ins", "def_ctrl", "def_pw", "def_filter"]
+    assert top == [
+        "def_mod",
+        "def_restart",
+        "def_ins",
+        "def_ctrl",
+        "def_pw",
+        "def_filter",
+        "def_phrase",
+    ]
     assert [t.type for t in first(tree, "def_ins").children if isinstance(t, Token)] == ["INS"]
     rows = [s.data for r in tree.find_data("row") for s in r.children if isinstance(s, Tree)]
-    assert rows == ["def_phrase", "plays"]
+    assert rows == ["plays"]
     assert keys(first(tree, "def_phrase")) == ["p1", "phrase"]
     assert parse(
         PROGRAMS.replace(
@@ -854,12 +868,13 @@ def test_the_definitions_are_top_level_sections_after_the_templates():
         ("restart:\n", "filter:\n  fl(c): c\nrestart:\n"),
         ("ins:\n", "mod:\n  walk(s): v + s\nins:\n"),
         ("song:", "ins:\n  i2: {ad: 1}\nsong:"),
-        ("  - def:\n      phrase:", "  - def:\n    phrase:"),
+        ("phrase:\n  p1", "phrase:\n    p1"),
+        ("ins:\n", "phrase:\n  p0: [C4]\nins:\n"),
     ],
 )
 def test_other_top_level_definition_spellings_are_refused(old, new):
-    """Records at other than 2 spaces, a section out of its order (filter first, mod or ins
-    after another), and a row's phrases at other than 6 spaces."""
+    """Records at other than 2 spaces and a section out of its order (filter first, mod, ins
+    or phrase after another)."""
     text = PROGRAMS.replace(old, new, 1)
     text = text.replace("filter:\n  fl(c): c\nsong:", "song:") if "restart" in new else text
     text = text.replace("mod:\n  walk(s): v + s\nrestart:", "restart:") if "mod" in new else text

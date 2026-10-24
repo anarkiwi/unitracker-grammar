@@ -1,19 +1,19 @@
-// The canonical unitracker document, format 2.0. A document names no player: everything it plays
+// The canonical unitracker document, format 2.1. A document names no player: everything it plays
 // is in it, and its only constants are the note table F(k) (notes.py) at its clock.
 // Whitespace is exact, but a space inside a flow collection or a block scalar may be a line wrap
 // (a newline and the continuation indentation); a flow expression that contains a comma is
 // written in single quotes. Every block line ends with its newline.
-// The definitions that are not song content are top-level sections, records at 2 spaces: the
-// templates (mod:, keyed by a SIGNATURE, an expression or a code block at 4 spaces), then
-// restart:, ins:, ctrl:, pw: and filter:; a row's def: holds its phrases. A program record may
-// be a template keyed by a PROGRAM_SIG whose rows read its parameters (PARAM, REL_PARAM, a
-// CALL's names); a CALL binds a template wherever a cell is bound or a program's name stands.
+// The definitions are top-level sections, records at 2 spaces: the templates (mod:, keyed by a
+// SIGNATURE, an expression or a code block at 4 spaces), then restart:, ins:, ctrl:, pw:,
+// filter: and phrase:; a song row holds only its play entries. A program record may be a
+// template keyed by a SIGNATURE whose rows read its parameters (PARAM, REL_PARAM, a CALL's
+// names); a CALL binds a template wherever a cell is bound or a program's name stands.
 // A definition may stand inline at its use: a program after its kind in run: and !run:
 // (ctrl[...]), an instrument after an event's note (C4.{ad: 9}), a phrase in a play entry
 // ([C4, -]+2), and, where a cell is bound, a code body on one line (asm{lda v; sta v+1; rts})
 // or, in a command or a slot's default, a quoted expression ('v + 40').
 
-start: "unitracker: " VERSION _NL meta _NL _from_clock? "song:" _NL row+ ending
+start: "unitracker: 2.1" _NL meta _NL _from_clock? "song:" _NL row+ ending
 // the optional lines after meta, in order: a chain of rules, each the lines from one on, so
 // that the parser's tables stay linear in their number
 _from_clock: clock _NL _from_voices? | _from_voices
@@ -29,7 +29,8 @@ _from_restart: def_restart _from_ins? | _from_ins
 _from_ins: def_ins _from_ctrl? | _from_ctrl
 _from_ctrl: def_ctrl _from_pw? | _from_pw
 _from_pw: def_pw _from_filter? | _from_filter
-_from_filter: def_filter _from_init? | _from_init
+_from_filter: def_filter _from_phrase? | _from_phrase
+_from_phrase: def_phrase _from_init? | _from_init
 _from_init: init _NL
 
 // ---- header: clock, voices and tempo only where they differ from PAL, 3 and 6 ---------------
@@ -73,20 +74,20 @@ intlist: _LB INT (_SEP INT)* "]"
 // ---- definitions --------------------------------------------------------------------------
 
 def_mod: "mod:" _NL ("  " SIGNATURE (": " expr _NL | ": |" _NL code))+
-def_restart: "restart:" _NL ("  " (RESTART | PROGRAM_SIG) ": " program _NL)+
+def_restart: "restart:" _NL ("  " (RESTART | SIGNATURE) ": " program _NL)+
 def_ins: "ins:" _NL ("  " INS ": " instrument _NL)+
-def_ctrl: "ctrl:" _NL ("  " (CTRL | PROGRAM_SIG) ": " program _NL)+
-def_pw: "pw:" _NL ("  " (PW | PROGRAM_SIG) ": " modulation _NL)+
-def_filter: "filter:" _NL ("  " (FILTER | PROGRAM_SIG) ": " modulation _NL)+
-def_phrase: "      phrase:" _NL ("        " PHRASE ": " phrase _NL)+
+def_ctrl: "ctrl:" _NL ("  " (CTRL | SIGNATURE) ": " program _NL)+
+// a pulse or filter record that is one binding is written as that binding
+def_pw: "pw:" _NL ("  " (PW | SIGNATURE) ": " modulation _NL)+
+def_filter: "filter:" _NL ("  " (FILTER | SIGNATURE) ": " modulation _NL)+
+def_phrase: "phrase:" _NL ("  " PHRASE ": " phrase _NL)+
 
 // one event per voice: the state after init, a step of no duration before the first tick
 init: "init: " _LB event (_SEP event)* "]"
 
 // ---- timeline -----------------------------------------------------------------------------
 
-row: "  - def:" _NL def_phrase "    play: " plays _NL
-   | "  - play: " plays _NL
+row: "  - play: " plays _NL
 ending: "  - end" _NL | "  - {loop: " INT "}" _NL
 plays: _LB play (_SEP play)* "]"
 play: (PHRASE | phrase) SIGNED? | CONT | END
@@ -105,7 +106,6 @@ ins_restart: "restart: " (RESTART | CALL | program)
 
 // a program: its rows in the order they run, then its end or its loop
 program: _LB (row_ _SEP)* (END | _LC LOOP INT "}") "]"
-// a pulse or filter program that is one binding is written as that binding
 modulation: program | _binding
 _binding: CALL | asm | fexpr
 _int: INT | PARAM
@@ -113,7 +113,8 @@ _int: INT | PARAM
 row_: _LC "}" | _LC row_wait "}"
 row_wait: "wait: " _int (_SEP row_hold)? | row_hold
 row_hold: "hold: " _int (_SEP row_ctrl)? | row_ctrl
-row_ctrl: "ctrl: " ctrl_value (_SEP row_gate)? | row_gate
+row_ctrl: "ctrl: " _int (_SEP row_mask)? | row_mask
+row_mask: "mask: " _int (_SEP row_gate)? | row_gate
 row_gate: "gate: " _int (_SEP row_note)? | row_note
 row_note: "note: " note_value (_SEP row_ad)? | row_ad
 row_ad: "ad: " _int (_SEP row_sr)? | row_sr
@@ -121,16 +122,16 @@ row_sr: "sr: " _int (_SEP row_pw)? | row_pw
 row_pw: SLOT? "pw: " cell_value (_SEP row_pw)? | row_cut
 row_cut: SLOT? "cut: " cell_value (_SEP row_cut)? | row_res
 row_res: "res: " _int (_SEP row_route)? | row_route
-row_route: "route: " route_value (_SEP row_mode)? | row_mode
+row_route: "route: " _int (_SEP row_route_on)? | row_route_on
+row_route_on: "route_on: " _int (_SEP row_route_off)? | row_route_off
+row_route_off: "route_off: " _int (_SEP row_mode)? | row_mode
 row_mode: "mode: " _int (_SEP row_freq)? | row_freq
 row_freq: SLOT? "freq: " cell_value (_SEP row_freq)? | row_run
 row_run: "run: " (_program_ref | run_program) (_SEP row_vol)? | row_vol
 row_vol: "vol: " _int
 
-ctrl_value: INT | CTRLMASK | PARAM
 note_value: SIGNED | NOTE | REL_PARAM
 cell_value: _binding | NONE | HOLD | RESET
-route_value: _int | ROUTE_ADD | ROUTE_ADD_MASK INT | ROUTE_REMOVE | ROUTE_REMOVE_MASK INT "'"
 // a program's name, or a call of a program template, whose section gives its kind
 _program_ref: CTRL | PW | FILTER | CALL
 // an inline program after its kind
@@ -144,8 +145,9 @@ cmd_run: "!run:" (_program_ref | run_program | NONE) cmd_pw | cmd_pw
 cmd_pw: CMD_PW (INT | _command) cmd_pw | cmd_ad
 cmd_ad: "!ad:" INT cmd_sr | cmd_sr
 cmd_sr: "!sr:" INT cmd_ctrl | cmd_ctrl
-cmd_ctrl: "!ctrl:" INT cmd_resfilt | cmd_resfilt
-cmd_resfilt: "!resfilt:" INT "/" INT cmd_mode | cmd_mode
+cmd_ctrl: "!ctrl:" INT cmd_res | cmd_res
+cmd_res: "!res:" INT cmd_route | cmd_route
+cmd_route: "!route:" INT cmd_mode | cmd_mode
 cmd_mode: "!mode:" INT cmd_vol | cmd_vol
 cmd_vol: "!vol:" INT cmd_cut | cmd_cut
 cmd_cut: CMD_CUT (INT | _command) cmd_cut | cmd_tempo
@@ -183,7 +185,6 @@ code_mem: (NAME | TABLE_BYTE) OFFSET? INDEX?
 
 // ---- terminals --------------------------------------------------------------------------
 
-VERSION: "2.0"
 META_KEY: "title" | "author" | "released"
 CELL: "freq" | "pw" | "cut"
 PHASE: "events" | "ctrl" | "pulse" | "filter" | "freq" | "pw" | "cut" | "read"
@@ -194,13 +195,15 @@ SLOT: /[a-z][a-z0-9_]*\./
 CMD_PW: /!(?:[a-z][a-z0-9_]*\.)?pw:/
 CMD_CUT: /!(?:[a-z][a-z0-9_]*\.)?cut:/
 CMD_FREQ: /!(?:[a-z][a-z0-9_]*\.)?freq:/
-// a template's parameter: a lowercase name, but a record's name (pw1, c1, f1, ...) or a call's
-PARAM: /(?!(?:pw|[cfipr])\d+\b)[a-z][a-z0-9_]*\b(?!\()/
-REL_PARAM: /[+-](?!(?:pw|[cfipr])\d+\b)[a-z][a-z0-9_]*/
-XTABLE: /[A-EG-MO-Z][A-Za-z]*/
+// a template's parameter: a lowercase name, but a name a template's body or a cell value
+// reads otherwise and a record's name (pw1, c1, f1, ...)
+_PARAM_NAME: /(?!(?:v|phi|n|nn|ne|none|hold|reset|(?:pw|[cfipr])\d+)\b)[a-z][a-z0-9_]*\b/
+PARAM: _PARAM_NAME /(?!\()/
+REL_PARAM: /[+-]/ _PARAM_NAME
+// a table's name: a capitalised name but F and N
+XTABLE: /(?![FN]\b)[A-Z][A-Za-z]*/
 INT: /0|[1-9]\d*/
 SIGNED: /[+-](?:0|[1-9]\d*)/
-CTRLMASK: /(?:0|[1-9]\d*)?\^(?:0|[1-9]\d*)/
 NOTE: /[A-G]#?-?\d+/
 NOTE_ATOM: /[A-G]#?-?\d+|-|off|on/
 INS: /i\d+/
@@ -215,11 +218,9 @@ DQUOTED: /"(?:[^"\\]|\\.)*"/
 NAME: /[a-z][a-z0-9_]*/
 STATE_NAME: /(?!(?:v|phi|nn|ne|a|x|y)\b)[a-z][a-z0-9_]*/
 STATE_SIZE: /[12]\b/
-TABLE_BYTE: /(?:F|[A-EG-MO-Z][A-Za-z]*)\.(?:lo|hi)/
-// a modulator template's key: its parameters none of the code's symbols
-SIGNATURE: /[a-z][a-z0-9_]*\((?:(?!(?:v|phi|nn|ne|a|x|y)\b)[a-z][a-z0-9_]*(?:, (?!(?:v|phi|nn|ne|a|x|y)\b)[a-z][a-z0-9_]*)*)?\)/
-// a program template's key: its parameters none of the names a cell value means otherwise
-PROGRAM_SIG: /(?!(?:pw|[cfipr])\d+\()[a-z][a-z0-9_]*\((?:(?!(?:v|n|none|hold|reset|(?:pw|[cfipr])\d+)\b)[a-z][a-z0-9_]*(?:, (?!(?:v|n|none|hold|reset|(?:pw|[cfipr])\d+)\b)[a-z][a-z0-9_]*)*)?\)/
+TABLE_BYTE: /(?!N\.)[A-Z][A-Za-z]*\.(?:lo|hi)/
+// a template's key, a modulator's or a program's: its name, no record's, and its parameters
+SIGNATURE: /(?!(?:pw|[cfipr])\d+\()[a-z][a-z0-9_]*\(/ (_PARAM_NAME (", " _PARAM_NAME)*)? ")"
 // a call: its arguments integers or, in a program template's rows, its parameters
 CALL: /(?!(?:abs|min|max)\()[a-z][a-z0-9_]*\((?:(?:[+-]?(?:0|[1-9]\d*)|[a-z][a-z0-9_]*)(?:,(?:[+-]?(?:0|[1-9]\d*)|[a-z][a-z0-9_]*))*)?\)/
 OFFSET: /\+[1-9]\d*/
@@ -232,15 +233,11 @@ LOOP: "loop: "
 NONE: "none"
 HOLD: "hold"
 RESET: "reset"
-ROUTE_ADD: "+"
-ROUTE_ADD_MASK: "+ "
-ROUTE_REMOVE: "'-'"
-ROUTE_REMOVE_MASK: "'- "
 LEGATO: "!legato"
 KEEP_PW: "!pw"
 KEEP_FILTER: "!filter"
 V: "v"
-PHI: "φ"
+PHI: "phi"
 N: "N"
 EVENT_NOTE: "n"
 F: "F("
