@@ -2,7 +2,6 @@
 
 import pytest
 from lark import Token, Tree
-from roundtrip import unrecorded
 
 from unitracker_grammar import expr
 from unitracker_grammar.code import Statements, inline
@@ -38,11 +37,10 @@ def doc(
 
 def canonical(text: str) -> str:
     """The one canonical text of a document's ``text``, or ``text`` outside the grammar."""
-    with unrecorded():
-        try:
-            return printed(read(text))
-        except ValueError:
-            return text
+    try:
+        return printed(read(text))
+    except ValueError:
+        return text
 
 
 def chain(tree: Tree, prefix: str) -> list[tuple[str, list[str]]]:
