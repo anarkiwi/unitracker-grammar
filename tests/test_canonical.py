@@ -563,8 +563,8 @@ MODS = (
 
 def test_the_mod_section_holds_signed_templates_after_the_tables():
     """Its records are at one space, each keyed by a signature, an expression or a code block of
-    statements each after a tab: the tree is a ``def_mod`` of signature tokens each before its ``expr`` or
-    ``code``."""
+    statements each after a tab: the tree is a ``def_mod`` of signature tokens each before its
+    ``expr`` or ``code``."""
     tree = parse(doc(STATE + MODS + "init:[C4]\n"))
     mods = first(tree, "def_mod")
     assert keys(mods) == ["note()", "expr", "porta(s,d)", "expr", "vib(c)", "code"]
@@ -675,9 +675,9 @@ INLINE = canonical(
 
 
 def test_a_definition_stands_inline_where_its_name_does():
-    """A program after its kind in a row's run: and a run command, an instrument after an event's note, a
-    phrase with its transpose in a play entry, an anonymous code body wherever a cell is bound,
-    and a quoted expression in a command and a slot's default."""
+    """A program after its kind in a row's run: and a run command, an instrument after an
+    event's note, a phrase with its transpose in a play entry, an anonymous code body wherever a
+    cell is bound, and a quoted expression in a command and a slot's default."""
     tree = parse(INLINE)
     assert [str(n.children[0]) for n in tree.find_data("run_program")] == ["pw", "ctrl", "filter"]
     assert len(list(tree.find_data("instrument"))) == 3
