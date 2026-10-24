@@ -151,7 +151,10 @@ def test_a_minus_before_a_literal_is_a_negative_literal():
     assert isinstance(neg.right, ast.Constant) and neg.right.value == -3
 
 
+@pytest.mark.noncanonical
 def test_an_expression_wrapped_over_lines_is_one_node():
+    """The grammar admits a line wrap wherever a flow space may stand, beyond the one text
+    printed writes."""
     text = (
         "unitracker: 1.20\nmeta: {title: T, author: A}\nsong:\n  - def:\n      ins:\n"
         "        i1: {freq: 'v\n            + min(φ, 2)'}\n      phrase:\n        p1: [C4.i1]\n"

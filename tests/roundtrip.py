@@ -1,4 +1,4 @@
-"""A pytest plugin: every document a test parses must print back as its text from its model.
+"""A pytest plugin: every document a test parses must be the one canonical text its model prints.
 
 ``pytest -p roundtrip`` (with this directory on the path) runs it over another suite."""
 
@@ -20,13 +20,14 @@ def _recording(parse):
     return recorded
 
 
-def pytest_configure(config):  # pylint: disable=unused-argument
+def pytest_configure(config):
+    config.addinivalue_line("markers", "noncanonical: reads texts other than the canonical one")
     lark = canonical.parser()
     lark.parse = _recording(lark.parse)
 
 
 def mismatch(text: str) -> str | None:
-    """Why ``text`` does not round-trip through its model, or None."""
+    """Why ``text`` is not the one canonical text of its model, or None."""
     doc = read(text)
     out = printed(doc)
     if out != text:
@@ -39,10 +40,14 @@ def mismatch(text: str) -> str | None:
 
 
 @pytest.fixture(autouse=True)
-def round_trip():
-    """Fails the test whose documents do not round-trip."""
+def round_trip(request):
+    """Fails the test whose documents are not their one canonical text, but a test marked
+    ``noncanonical``, which reads the grammar's other spellings."""
     _SEEN.clear()
     yield
+    if request.node.get_closest_marker("noncanonical"):
+        _SEEN.clear()
+        return
     failures = [why for text in dict.fromkeys(_SEEN) if (why := mismatch(text))]
     _SEEN.clear()
     assert not failures, failures[0]
