@@ -556,3 +556,93 @@ def test_other_order_spellings_are_refused(head):
     are refused."""
     with pytest.raises(CanonicalError):
         parse(doc("", head))
+
+
+STATE = "state: {freq: {t: 1}, pw: {r: 1, q: 2}, cut: {k: 2}}\n"
+CODE = (
+    "      mod:\n        vib: |\n          lda t\n          bmi up\n          cmp #c\n"
+    "          adc #>c\n          sta G.lo+3,x\n          up:\n          rts\n"
+    "        porta: v + s\n"
+)
+
+
+def test_the_state_line_names_each_cell_s_variables_after_the_order_line():
+    tree = parse(doc("", ORDER + STATE + "tables:\n  G: [1]\n").replace("1.21", "1.23"))
+    assert [
+        (n.data, [str(t) for t in n.children[0].scan_values(lambda _: True)])
+        for n in first(tree, "state").iter_subtrees_topdown()
+        if n.data.startswith("state_") and isinstance(n.children[0], Tree)
+        if n.children[0].data == "state_vars"
+    ] == [
+        ("state_freq", ["t", "1"]),
+        ("state_pw", ["r", "1", "q", "2"]),
+        ("state_cut", ["k", "2"]),
+    ]
+    assert first(parse(doc("", "state: {cut: {k: 1}}\n")), "state")
+
+
+@pytest.mark.parametrize(
+    "head",
+    [
+        STATE + ORDER,
+        "state: {}\n",
+        "state: {freq: {}}\n",
+        "state: {pw: {r: 1}, freq: {t: 1}}\n",
+        "state: {vol: {t: 1}}\n",
+        "state: {freq: {t: 3}}\n",
+        "state: {freq: {t: 12}}\n",
+        "state: {freq: {t: 0}}\n",
+        "state: {freq: {T: 1}}\n",
+        "state: {freq: {t:1}}\n",
+        *(f"state: {{freq: {{{name}: 1}}}}\n" for name in ("v", "phi", "nn", "ne", "a", "x", "y")),
+        "tables:\n  G: [1]\n" + STATE,
+    ],
+)
+def test_other_state_spellings_are_refused(head):
+    """A state line before the order line or after the tables, an empty cell or line, cells out
+    of order, a cell that is none, a size other than 1 or 2, a name that is no NAME or a reserved
+    symbol and a missing space are refused."""
+    with pytest.raises(CanonicalError):
+        parse(doc("", head))
+
+
+def test_a_template_may_be_a_code_block_of_statements():
+    tree = parse(doc(CODE, STATE))
+    section = next(s for s in tree.find_data("section") if s.children[0] == "vib")
+    assert [c if isinstance(c, Token) else c.data for c in section.children] == [
+        "vib",
+        "code",
+        "porta",
+        "expr",
+    ]
+    assert [
+        (n.data, [str(t) for t in n.scan_values(lambda _: True)])
+        for n in first(tree, "code").children
+    ] == [
+        ("code_op", ["lda", "t"]),
+        ("code_op", ["bmi", "up"]),
+        ("code_op", ["cmp", "c"]),
+        ("code_op", ["adc", ">", "c"]),
+        ("code_op", ["sta", "G.lo", "+3", ",x"]),
+        ("code_label", ["up"]),
+        ("code_op", ["rts"]),
+    ]
+
+
+@pytest.mark.parametrize(
+    "defs",
+    [
+        CODE.replace("          up:", "        up:"),
+        CODE.replace("          rts", "            rts"),
+        CODE.replace("vib: |", "vib: | "),
+        CODE.replace("vib: |\n", "vib: |\n\n"),
+        CODE.replace("#c", "#$c"),
+        "      x:\n        x1: |\n          rts\n",
+        "      mod:\n        vib: |\n",
+    ],
+)
+def test_other_code_block_spellings_are_refused(defs):
+    """A label or statement at another indentation, a space after the block indicator, a blank
+    line, a hex integer, a code block in an x record and an empty block are refused."""
+    with pytest.raises(CanonicalError):
+        parse(doc(defs))

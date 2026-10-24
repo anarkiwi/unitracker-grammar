@@ -1,4 +1,4 @@
-// The canonical unitracker document: format 1.22 with the init row (anarkiwi/unitracker#165),
+// The canonical unitracker document: format 1.23 with the init row (anarkiwi/unitracker#165),
 // value-or-expression command arguments (anarkiwi/unitracker#172) and no fixed record types
 // (anarkiwi/unitracker#126, anarkiwi/unitracker#165). A document names no player: everything it
 // plays is in it, and its only constants are the note table F(k) (notes.py) at its clock.
@@ -15,8 +15,11 @@
 // expression over named parameters; an x instance is an expression or a template with its
 // parameter bag; a binding is an instance or template by name, an expression, or (but in a
 // command) a template with its bag.
+// Format 1.23 declares, in its state line, each cell's state variables (per voice, 0 at tick 0);
+// a mod: template may instead be a code block, a 6502 routine over v, phi, nn, ne, its cell's
+// state variables and the tables' bytes, one canonical statement per line (code.py).
 
-start: "unitracker: " VERSION _NL meta _NL (clock _NL)? (voices _NL)? (tempo _NL)? (hold _NL)? (slots _NL)? (order _NL)? tables? (init _NL)? "song:" _NL row+ ending
+start: "unitracker: " VERSION _NL meta _NL (clock _NL)? (voices _NL)? (tempo _NL)? (hold _NL)? (slots _NL)? (order _NL)? (state _NL)? tables? (init _NL)? "song:" _NL row+ ending
 
 // ---- header: clock, voices and tempo only where they differ from PAL, 3 and 6 ---------------
 
@@ -46,6 +49,15 @@ slot_reset: "reset: " events
 // format 1.22: the phases of a tick in the order they run, each over the voices in order
 order: "order: " _LB PHASE (_SEP PHASE)* "]"
 
+// format 1.23: per cell, in cell order, its state variables in declaration order, each with
+// its size in bytes; a name is none of the code's reserved symbols
+state: "state: " _LC state_freq "}"
+state_freq: "freq: " state_vars (_SEP state_pw)? | state_pw
+state_pw: "pw: " state_vars (_SEP state_cut)? | state_cut
+state_cut: "cut: " state_vars
+state_vars: _LC state_var (_SEP state_var)* "}"
+state_var: STATE_NAME ": " STATE_SIZE
+
 // the tables expressions index as T[k]: 0 outside the list
 tables: "tables:" _NL ("  " XTABLE ": " intlist _NL)+
 intlist: _LB INT (_SEP INT)* "]"
@@ -68,9 +80,12 @@ section: "      restart:" _NL ("        " RESTART ": " program _NL)+
        | "      ctrl:" _NL ("        " CTRL ": " program _NL)+
        | "      pw:" _NL ("        " PW ": " modulation _NL)+
        | "      filter:" _NL ("        " FILTER ": " modulation _NL)+
-       | "      mod:" _NL ("        " NAME ": " expr _NL)+
+       | "      mod:" _NL ("        " NAME _template)+
        | "      x:" _NL ("        " X ": " expr (" " param_bag)? _NL)+
        | "      phrase:" _NL ("        " PHRASE ": " phrase _NL)+
+
+// a template: an expression, or format 1.23's code block
+_template: ": " expr _NL | ": |" _NL code
 
 instrument: _LC ins_ad "}"
 ins_ad: "ad: " (INT) (_SEP ins_sr)? | ins_sr
@@ -152,6 +167,14 @@ factor: INT | SIGNED | V | PHI | N | EVENT_NOTE | PARAM
       | "(" expr ")" | "(" expr CMP expr ")"
       | NEG factor
 
+// ---- code (format 1.23): a label, or a mnemonic with its operand --------------------------
+
+code: ("          " (code_label | code_op) _NL)+
+code_label: NAME ":"
+code_op: NAME (" " (code_imm | code_mem))?
+code_imm: "#" (IMM_INT | BYTE? NAME)
+code_mem: (NAME | TABLE_BYTE) OFFSET? INDEX?
+
 // ---- terminals --------------------------------------------------------------------------
 
 VERSION: /\d+\.\d+/
@@ -183,6 +206,13 @@ TEXT: /[^\s,\[\]{}'"#&*!|>%@`][^,\[\]{}]*/
 SQUOTED: /'(?:[^']|'')*'/
 DQUOTED: /"(?:[^"\\]|\\.)*"/
 NAME: /[a-z][a-z0-9_]*/
+STATE_NAME: /(?!(?:v|phi|nn|ne|a|x|y)\b)[a-z][a-z0-9_]*/
+STATE_SIZE: /[12]\b/
+TABLE_BYTE: /[A-EG-MO-Z][A-Za-z]*\.(?:lo|hi)/
+IMM_INT: /0|[1-9]\d*/
+OFFSET: /\+[1-9]\d*/
+INDEX: ",x" | ",y"
+BYTE: "<" | ">"
 
 CONT: "~"
 END: "end"

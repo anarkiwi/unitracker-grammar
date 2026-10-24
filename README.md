@@ -14,7 +14,11 @@ events it holds and resets on (`slots: {freq: {wave: {mod: note, reset: [row.not
 records instances (`x1: porta {s: 32}`); a `slot.` prefix on a cell's row key, instrument field
 or command (`tick.freq: x3`, `!tick.freq:x3`) names the slot it binds or stops; its `order`
 line names the phases of a tick in the order they run
-(`order: [events, ctrl, pulse, filter, freq, pw, cut, read]`). Format 1.21's
+(`order: [events, ctrl, pulse, filter, freq, pw, cut, read]`). Format 1.23's `state` line,
+after `order`, declares per cell its state variables and their sizes in bytes
+(`state: {freq: {t: 1}, pw: {r: 1, q: 2}}`), a copy per voice (one for `cut`), 0 at tick 0, which
+only code templates read and write; a `mod` record may be a code block (`vib: |`, then a
+statement per line at the record's indentation plus 2) instead of an expression. Format 1.21's
 `hold` line names, per cell, the events its modulators hold on (unitracker-player's
 [semantics](https://github.com/anarkiwi/unitracker-player/blob/main/docs/semantics.md)).
 
@@ -53,6 +57,33 @@ note; a template's other lowercase names are its parameters, which `params` list
 replaces with integers. `source` is the Python source of an expression (`ExpressionError` outside the grammar),
 `printed` the one text of a node and `written` an integer literal as an int. `//` and `%` raise
 `ZeroDivisionError` on a divisor of 0; with `zero=True` they are 0.
+
+## Code templates
+
+`unitracker_grammar.code` owns format 1.23's code templates: NMOS 6502 routines but `brk`, `jsr`
+and `rti`, with no indirect modes and no comments, that end in `rts`. A routine is a tuple of
+statements, each a `Label(name)` or an `Op(mnemonic, mode, operand)`: `mode` is `implied`
+(`lsr` bare is the accumulator's), `immediate` (`Imm(value, byte)`: `#7`, `#p`, `#<p`, `#>p`),
+`memory`, `memory,x` or `memory,y` (`Mem(symbol, offset, index)`: `v`, `v+1`, `G.lo+3,x`), or
+`label` (a branch's or `jmp`'s label name).
+
+```python
+from unitracker_grammar import code, parse
+ops = code.read("lda #c\nsta v\nrts\n")   # checked statements, or CodeError
+code.printed(ops)                          # 'lda #c\nsta v\nrts\n', its one text
+code.params(ops), code.symbols(ops)        # ('c',), ('v',): in first-use order
+code.templates(parse(text))                # {name: statements} of a document's code blocks
+code.state(parse(text))                    # {cell: ((name, size), ...)} of its state line
+```
+
+Memory symbols are `v` (2 bytes: in, the value before the slot; out, the modulator's value),
+`phi` (2, φ mod 65536, read-only), `nn` and `ne` (the low bytes of `N` and `n`), the state
+variables of the template's cell, and `T.lo` / `T.hi` (each entry's low and high byte) for a table
+`T`. A code slot fires where an expression would: `v`, `phi`, `nn`, `ne` and the voice's copy of
+its cell's state are set, A, X, Y and the flags (but I) are 0, and the routine runs to an `rts`
+on an empty stack, within 4096 instructions; `v` wrapped to the cell's width is its value and the
+state is stored back. A symbol that is none of these, or a state variable of another cell, is
+refused when the template is bound.
 
 ## Grammar
 
