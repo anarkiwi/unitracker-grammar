@@ -244,28 +244,26 @@ def expanded(doc: Document) -> Document:
     return doc
 
 
+def _sugar(node: Tree, token: Token) -> bool:
+    """Whether ``token``, a child of ``node``, is format 2.3's sugar."""
+    if token.type in ("PHRASE_CALL", "NOTE_PARAM"):
+        return True
+    if token.type == "SIGNATURE":
+        return node.data in ("def_ins", "def_phrase")
+    if token.type != "CALL":
+        return False
+    if node.data in ("event", "def_ins", "use_ins"):
+        return True
+    return any(isinstance(a, str) and a in CHORDS for a in _code.call(token).args)
+
+
 def _sugared(tree: Tree) -> bool:
     """Whether a document's parse tree holds any of format 2.3's sugar or a definition at its
     first use."""
-    for node in tree.iter_subtrees():
-        if node.data in _SUGAR:
-            return True
-        for token in node.children:
-            if not isinstance(token, Token):
-                continue
-            if token.type in ("PHRASE_CALL", "NOTE_PARAM"):
-                return True
-            if token.type == "SIGNATURE" and node.data in ("def_ins", "def_phrase"):
-                return True
-            if token.type == "CALL" and node.data in ("def_ins", "use_ins"):
-                return True
-            if token.type == "CALL":
-                found = _code.call(token)
-                if node.data == "event":
-                    return True
-                if any(isinstance(a, str) and a in CHORDS for a in found.args):
-                    return True
-    return False
+    return any(
+        node.data in _SUGAR or any(isinstance(t, Token) and _sugar(node, t) for t in node.children)
+        for node in tree.iter_subtrees()
+    )
 
 
 def core(text: str) -> Tree:
