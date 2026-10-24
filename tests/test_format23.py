@@ -240,3 +240,9 @@ def test_an_instrument_or_phrase_record_may_be_a_template_call():
 def test_an_integer_template_body_at_its_first_use_stays_quoted():
     text = doc("phrase:\n p1:[C4 pw:k()='2048'()]\n")
     assert printed(read(text)) == text
+
+
+def test_a_count_of_two_digits_reads():
+    text = doc("phrase:\n p1:[C4,[D]x23]\nsection:\n s1:[play:[p1,p1,p1]]\n", " - s1x23\n - end\n")
+    model = read(text)
+    assert printed(model) == text and model.rows[0] == Part("s1", 23)

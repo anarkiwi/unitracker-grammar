@@ -273,7 +273,7 @@ RESTART: /r\d+/
 PHRASE: /p\d+/
 SECTION: /s\d+/
 // x and a count of 2 or more
-TIMES: /x(?:[2-9]|[1-9]\d+)/
+TIMES: /x(?:[1-9]\d+|[2-9])/
 // a note's parameter: a lowercase name but a note's letter and one a parameter may not be
 NOTE_PARAM: /(?![a-g](?:-?\d+)?\b|off\b|on\b|(?:v|phi|n|nn|ne|none|hold|reset|(?:pw|[cfiprs])\d+)\b)[a-z][a-z0-9_]*/
 // a phrase template's call: its notes, each with its octave
