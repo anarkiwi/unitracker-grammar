@@ -7,48 +7,77 @@ in its one text and compiled to Python.
 
 A document names no player. It holds everything it plays: instruments, programs, expressions,
 code, phrases and the tables they index. Its only constants are the note table at its clock and
-the header defaults (PAL clock, 3 voices, tempo 6). The grammar is format 2.1's, and refuses
+the header defaults (PAL clock, 3 voices, tempo 6). The grammar is format 2.2's, and refuses
 every other version.
 
-After `meta`, each optional and in this order: `clock` (`{cycles_per_tick: C, clock_hz: H}`,
-and `rounding: floor` where the note table's words are rounded down rather than to the nearest),
-`voices`, `tempo`; `slots`, per cell
-its modulator slots in firing order, each with its default binding and the events it holds and
-resets on (`slots: {freq: {wave: {mod: note(), reset: [row.note]}, tick: {hold: [step-1, row]}}}`);
-`order`, the phases of a tick (`order: [events, ctrl, pulse, filter, freq, pw, cut, read]`);
-`state`, per cell its state variables and their sizes in bytes (`state: {freq: {t: 1}, pw: {r: 1,
-q: 2}}`); `regs`, the 25 SID registers' values before tick 0 (`regs: [0, 0, ..., 15]`); `tables`; then the definitions that are not song content, each kind a top-level
-section with records at 2 spaces: `mod:` (templates keyed by their signature, an expression or a
-code block at 4 spaces: `vib(l, c, s): |`, `walk(s): v + s`, `note(): F(N)`), `restart:`,
-`ins:`, `ctrl:`, `pw:`, `filter:`, `phrase:`; then `init`, and `song:`, whose rows hold only
-their play entries (`- play: [p1, p2+2, ~]`). A `slot.` prefix on a cell's row key, instrument field or command (`tick.freq: vib(0,4,
-64)`, `!tick.freq:none`) names the slot it binds or stops; a call binds a template wherever a cell
-is bound, its integer arguments in the signature's order without spaces. A modulated cell's
-stops are `none`, `hold` and `reset` (`phi` back to 0, the binding kept), as a row key's value and a
-command (`{pw: ptab(3), pw: reset}`, `!pw:ptab(3)!pw:reset`); a cell's keys may repeat, and the
-model keeps them in the order written.
+```text
+unitracker:2.2
+meta:{title:T,author:A}
+mod:
+ vib(c):|
+	lda v
+	clc
+	adc #c
+	sta v
+	rts
+ins:
+ i1:{ad:9,sr:240,ctrl:[{ctrl:65},end],tick.freq:vib(3)}
+phrase:
+ p1:[C4.i1,E,g legato*2,-*3,C5 pw:'v + 40',a]
+song:
+ - play:[p1,p1+12,~]
+ - {loop:0}
+```
 
-A `pw` or `filter` record that is one binding is written as that binding (`pw1: ptab(3)`, never
-`pw1: [{pw: ptab(3)}, end]`). A program record (`restart`, `ctrl`, `pw`, `filter`) may be a
-template keyed by its signature
-(`arp(a, b): [{ctrl: 65, note: +a}, {wait: a, note: -b}, {loop: 0}]`), its rows reading its
-parameters where they take an integer, as a relative note (`+a`, `-a`), as a cell value alone
-(`pw: b`) and as a call's argument (`pw: walk(b)`); a call binds it wherever a program's name
-stands (`ctrl: arp(7,4)`, `restart: hr(2,9,220)`, `run: arp(7,4)`, `!run:arp(7,4)`), its
-section giving its kind. Any definition may also stand inline at its use: a program after its
-kind in `run:` and `!run:` (`run: pw[{pw: 5}, end]`), an instrument after an event's note
-(`C4.{ad: 9, sr: 240}`), a phrase with its transpose in a play entry (`play: [[C4, -*3]+2, ~]`)
-and, wherever a cell is bound, an anonymous code body (`asm{lda v; up:; adc #1; sta v; bne up;
-rts}`); a command and a slot's default also bind a quoted expression (`!pw:'v + 40'`).
+The text: no line wraps, a block line holds its whole value; no space after a key's colon nor a
+flow comma; records and song rows indented by one space, a code block's lines by a tab; an
+event's commands and flags each introduced by a space (` run:c1`, ` tick.freq:none`,
+` legato`, ` pw`). A note is its letter, a sharp's in lower case (`c4` is C#4), and its octave.
+In a phrase a note leaves out its octave where it is the previous note's in that phrase (rests,
+`off` and `on` between them keep it): `[C4,E,-*2,g,C5]` is C4, E4, G#4, C5. The first note of a
+phrase always carries its octave, each phrase (a record, an inline phrase, a first-use one) is
+its own context, and a play entry's transpose applies after; `init`'s notes and a program row's
+`note:` always carry theirs. `read` also accepts a repeated octave; `printed` leaves it out.
+
+After `meta`, each optional and in this order: `clock` (`{cycles_per_tick:C,clock_hz:H}`,
+and `rounding:floor` where the note table's words are rounded down rather than to the nearest),
+`voices`, `tempo`; `slots`, per cell its modulator slots in firing order, each with its default
+binding and the events it holds and resets on
+(`slots:{freq:{wave:{mod:note(),reset:[row.note]},tick:{hold:[step-1,row]}}}`); `order`, the
+phases of a tick (`order:[events,ctrl,pulse,filter,freq,pw,cut,read]`); `state`, per cell its
+state variables and their sizes in bytes (`state:{freq:{t:1},pw:{r:1,q:2}}`); `regs`, the 25 SID
+registers' values before tick 0 (`regs:[0,0,...,15]`); `tables`; then the definitions that are
+not song content, each kind a top-level section: `mod:` (templates keyed by their signature, an
+expression or a code block: `vib(l,c,s):|`, `walk(s):v + s`, `note():F(N)`), `restart:`,
+`ins:`, `ctrl:`, `pw:`, `filter:`, `phrase:`; then `init`, and `song:`, whose rows hold only
+their play entries (` - play:[p1,p2+2,~]`). A `slot.` prefix on a cell's row key, instrument
+field or command (`tick.freq:vib(0,4,64)`, ` tick.freq:none`) names the slot it binds or stops; a
+call binds a template wherever a cell is bound, its integer arguments in the signature's order.
+A modulated cell's stops are `none`, `hold` and `reset` (`phi` back to 0, the binding kept), as a
+row key's value and a command (`{pw:ptab(3),pw:reset}`, ` pw:ptab(3) pw:reset`); a cell's keys
+may repeat, and the model keeps them in the order written.
+
+A `pw` or `filter` record that is one binding is written as that binding (`pw1:ptab(3)`, never
+`pw1:[{pw:ptab(3)},end]`). A program record (`restart`, `ctrl`, `pw`, `filter`) may be a
+template keyed by its signature (`arp(a,b):[{ctrl:65,note:+a},{wait:a,note:-b},{loop:0}]`), its
+rows reading its parameters where they take an integer, as a relative note (`+a`, `-a`), as a
+cell value alone (`pw:b`) and as a call's argument (`pw:walk(b)`); a call binds it wherever a
+program's name stands (`ctrl:arp(7,4)`, `restart:hr(2,9,220)`, `run:arp(7,4)`,
+` run:arp(7,4)`), its section giving its kind. Any definition may also stand inline at its use:
+a program after its kind in a row's `run:` and a ` run:` command (`run:pw[{pw:5},end]`), an
+instrument after an event's note (`C4.{ad:9,sr:240}`), a phrase with its transpose in a play
+entry (`play:[[C4,-*3]+2,~]`) and, wherever a cell is bound, an anonymous code body
+(`asm{lda v; up:; adc #1; sta v; bne up; rts}`); a command and a slot's default also bind a
+quoted expression (` pw:'v + 40'`).
 
 A named definition may also be written at its first reference instead of in its section, its
 name and `=` before its value, and is referenced by name after: an instrument
-`C4.i3={ad: 9, ctrl: c1=[{ctrl: 65}, end]}` then `D4.i3`, a program `run: c3=[...]`,
-`restart: r2=[...]`, `pw: pw2=v + 3`, a phrase `p3=[C4.i3, -*3]+2` in a play entry; a template
-its signature and `=` before its body, then its call's arguments: `!tick.freq:vib(c)=asm{...}(4)`,
-`!pw:walk(s)='v + s'(2)` (an expression body always quoted), a program template
-`ctrl: arp(a, b)=[{ctrl: 65, note: +a}, end](7,4)`, after its kind in a run
-(`!run:arp(a, b)=ctrl[...](7,4)`), then `vib(3)`, `arp(0,7)`. It is the same definition as in
+`C4.i3={ad:9,ctrl:c1=[{ctrl:65},end]}` then `D.i3`, a program `run:c3=[...]`,
+`restart:r2=[...]`, `pw:pw2=v + 3`, a phrase `p3=[C4.i3,-*3]+2` in a play entry; a template
+its signature and `=` before its body, then its call's arguments: ` tick.freq:vib(c)=asm{...}(4)`,
+` pw:walk(s)='v + s'(2)` (an expression body always quoted), a program template
+`ctrl:arp(a,b)=[{ctrl:65,note:+a},end](7,4)`, after its kind in a run
+(` run:arp(a,b)=ctrl[...](7,4)`), then `vib(3)`, `arp(0,7)`. It is the same definition as in
 its section; a section's records are defined throughout, one at its first use from there on: a
 reference before it, and a name defined twice, are refused. `document.top_level(doc)` moves every
 such definition to its section and `document.first_use(doc)` every definition the song reaches
@@ -58,9 +87,9 @@ each where it is written (`Def(name, value, args)` at a use), so `printed` write
 A
 modulator's and a program's signature take the same parameter names: lowercase names but `v`,
 `phi`, `n`, `nn`, `ne`, `none`, `hold`, `reset` and a record's name (`c1`, `pw2`). A table is
-named by a capitalised name but `F` and `N`. A row's control mask is its own key (`{ctrl: 65,
-mask: 8}`), as are the routing's forms (`route: m` sets it, `route_on: m` and `route_off: m` add
-and remove this voice's bit and `m`); `!res:r` and `!route:m` set the resonance and the
+named by a capitalised name but `F` and `N`. A row's control mask is its own key (`{ctrl:65,
+mask:8}`), as are the routing's forms (`route:m` sets it, `route_on:m` and `route_off:m` add
+and remove this voice's bit and `m`); ` res:r` and ` route:m` set the resonance and the
 routing. What each
 construct plays is unitracker-player's
 [semantics](https://github.com/anarkiwi/unitracker-player/blob/main/docs/semantics.md).
@@ -191,25 +220,23 @@ doc = replace(doc, loop=None)                                # edits are datacla
 | class | holds |
 |---|---|
 | `Document(header, tables, mods, defs, init, rows, loop)` | `tables` `{name: ints}`; `mods` the templates `(signature, Expr \| Code)`; `defs` the `restart`, `ins`, `ctrl`, `pw`, `filter` and `phrase` sections in that order (`Section`s, or `{kind: [(name, value)]}`); `init` events or None; `rows` SongRows (or play entry lists); `loop` the row it loops to, None for `end` |
-| `Header(meta, clock, voices, tempo, slots, order, state, regs)` | each line, None where not written (the version line is always `VERSION`, `"2.1"`); `clock` `(cycles_per_tick, clock_hz)`, or with `"floor"` third; `meta` texts as written (`"'A, B'"` quoted); `slots` `{cell: [Slot]}`, `state` `{cell: [(name, size)]}`; `slot(cell)` its Slots |
+| `Header(meta, clock, voices, tempo, slots, order, state, regs)` | each line, None where not written (the version line is always `VERSION`, `"2.2"`); `clock` `(cycles_per_tick, clock_hz)`, or with `"floor"` third; `meta` texts as written (`"'A, B'"` quoted); `slots` `{cell: [Slot]}`, `state` `{cell: [(name, size)]}`; `slot(cell)` its Slots |
 | `Slot(name, mod, hold, reset)` | a slot's default binding and its events (`"note-1"`, `"row.freq"`) |
 | `SongRow(play)` | play entries (`Play(phrase, transpose)`, `"~"`, `"end"`; a phrase is a name or inline events) |
-| `Section(kind, records)` | `(name, value)` records of one kind; a template's name is its `signature` (`arp(a, b)`), its rows reading parameters as strings (`ad: "a"`, `note: "+a"`, `Call("walk", ("b",))`); a `pw` or `filter` record `Program([{"pw": b}])` (`cut` for `filter`) is stored as `b` |
+| `Section(kind, records)` | `(name, value)` records of one kind; a template's name is its `signature` (`arp(a,b)`), its rows reading parameters as strings (`ad: "a"`, `note: "+a"`, `Call("walk", ("b",))`); a `pw` or `filter` record `Program([{"pw": b}])` (`cut` for `filter`) is stored as `b` |
 | `Instrument(fields)`, `Row(keys)` | `{key: value}`, `slot.key` for a slot's, kept in the grammar's order |
-| `Program(rows, loop)` | Rows (or dicts), then `end` (`loop` None) or `{loop: k}` |
-| `Event(note, ins, commands, keep_pw, keep_filter, steps)` | `ins` a name or an Instrument; commands `{key: value}`, `("legato", True)`; `steps` the `*k` |
+| `Program(rows, loop)` | Rows (or dicts), then `end` (`loop` None) or `{loop:k}` |
+| `Event(note, ins, commands, keep_pw, keep_filter, steps)` | `note` absolute (`"C#4"`, `"-"`, `"off"`, `"on"`); `ins` a name or an Instrument; commands `{key: value}`, `("legato", True)`; `steps` the `*k` |
 | `Expr(text)`, `Call(name, args)`, `Code(statements)` | an expression, a call, a routine (an `asm{...}` body where it binds) |
-| `Run(kind, program)` | an inline program after its kind in `run:` or `!run:` |
+| `Run(kind, program)` | an inline program after its kind in `run:` or ` run:` |
 | `Def(name, value, args)` | a definition at its first use: `name` (a template's signature), its value, a template's call's arguments (None for a named one) |
-| `Signed` | an int written with its sign: `note: +0`, a transpose, `!freq:-3` |
+| `Signed` | an int written with its sign: `note:+0`, a transpose, ` freq:-3` |
 
-A leaf is otherwise an `int` or a `str` as written (a name, a note, `none`, `hold`).
-`printed` wraps flow collections and plain scalars as PyYAML's emitter does at width 100 (a break
-before an item, or at a scalar's space, once a line is past the width; continuing at the
-collection's indentation, a scalar's 2 deeper) but never the `slots`, `order` and `state`
-lines, and quotes an expression in a flow collection that holds a comma, and in a command or a
-slot's default always, and nowhere else. That is a document's one canonical text: the grammar also admits other
-line wraps, which `read` accepts and `printed` writes canonically. `printed` raises
+A leaf is otherwise an `int` or a `str` as written (a name, an absolute note, `none`, `hold`).
+`printed` writes each block line whole, leaves out a phrase note's octave where it repeats the
+previous note's, writes a sharp's letter in lower case, and quotes an expression in a flow
+collection that holds a comma, and in a command or a slot's default always, and nowhere else.
+That is a document's one canonical text. `printed` raises
 `CanonicalError` for a model the grammar refuses: no meta, no row or a row of no play entry, a
 section of no records, twice or out of order.
 

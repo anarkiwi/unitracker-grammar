@@ -43,13 +43,13 @@ VIB = (
 
 
 def document(head: str, block: str) -> str:
-    """A document of the header lines ``head`` and a template ``vib(c, p)`` of ``block``."""
-    body = "".join(f"    {s}\n" for s in block[:-1].split("\n"))
+    """A document of the header lines ``head`` and a template ``vib(c,p)`` of ``block``."""
+    body = "".join(f"\t{s}\n" for s in block[:-1].split("\n"))
     return (
-        f"unitracker: 2.1\nmeta: {{title: T}}\n{head}tables:\n  G: [1]\n"
-        f"mod:\n  vib(c, p): |\n{body}"
-        "  porta(s): v + s\nins:\n  i1: {freq: vib(3,9)}\nphrase:\n  p1: [C4.i1]\n"
-        "song:\n  - play: [p1]\n  - end\n"
+        f"unitracker:2.2\nmeta:{{title:T}}\n{head}tables:\n G:[1]\n"
+        f"mod:\n vib(c,p):|\n{body}"
+        " porta(s):v + s\nins:\n i1:{freq:vib(3,9)}\nphrase:\n p1:[C4.i1]\n"
+        "song:\n - play:[p1]\n - end\n"
     )
 
 
@@ -177,7 +177,7 @@ def test_check_refuses_an_op_whose_mode_is_not_its_operand_s_and_labels_of_names
         read("up:\nrts\n", {"up"})
 
 
-STATE = "state: {freq: {t: 1, w: 2}, cut: {k: 1}}\n"
+STATE = "state:{freq:{t:1,w:2},cut:{k:1}}\n"
 
 
 def test_a_document_s_templates_are_its_code_blocks_checked():
@@ -193,7 +193,7 @@ def test_a_document_s_templates_are_its_code_blocks_checked():
 
 def test_a_state_variable_is_declared_once_across_cells():
     with pytest.raises(CanonicalError, match="twice"):
-        parse(document("state: {freq: {t: 1}, pw: {t: 1}}\n", VIB))
+        parse(document("state:{freq:{t:1},pw:{t:1}}\n", VIB))
 
 
 def test_a_call_is_its_name_and_integer_arguments():
@@ -203,22 +203,22 @@ def test_a_call_is_its_name_and_integer_arguments():
 
 
 def test_a_signature_declares_the_parameters_the_body_reads():
-    assert signature("vib(l, c, s)") == ("vib", ("l", "c", "s")) and signature("n()") == ("n", ())
-    assert declare("vib(s, c)", ("c", "s")) == ("vib", ("s", "c"))
+    assert signature("vib(l,c,s)") == ("vib", ("l", "c", "s")) and signature("n()") == ("n", ())
+    assert declare("vib(s,c)", ("c", "s")) == ("vib", ("s", "c"))
     with pytest.raises(CodeError, match="declared twice"):
-        signature("vib(c, c)")
+        signature("vib(c,c)")
     with pytest.raises(CodeError, match=r"undeclared \['s'\], unread \[\]"):
         declare("vib(c)", ("c", "s"))
     with pytest.raises(CodeError, match=r"undeclared \[\], unread \['d'\]"):
-        declare("vib(c, d)", ("c",))
+        declare("vib(c,d)", ("c",))
     with pytest.raises(CodeError, match=r"\['t'\] are state variables"):
         declare("vib(t)", ("t",), {"t"})
 
 
 TOP = (
-    "unitracker: 2.1\nmeta: {title: T}\nstate: {freq: {t: 1}}\nmod:\n  walk(s): v + s*n\n"
-    "  note(): F(N)\n  vib(c, p): |\n    lda t\n    cmp #c\n    lda #>p\n    lda F.lo,x\n"
-    "    rts\n  add(d): |\n    adc #d\n    rts\nsong:\n  - play: [p1]\n  - end\n"
+    "unitracker:2.2\nmeta:{title:T}\nstate:{freq:{t:1}}\nmod:\n walk(s):v + s*n\n"
+    " note():F(N)\n vib(c,p):|\n\tlda t\n\tcmp #c\n\tlda #>p\n\tlda F.lo,x\n"
+    "\trts\n add(d):|\n\tadc #d\n\trts\nsong:\n - play:[p1]\n - end\n"
 )
 
 
@@ -229,15 +229,15 @@ def test_a_document_s_signatures_and_templates_are_in_its_mod_section():
     assert templates(tree)["vib"][3] == Op("lda", "memory,x", Mem("F.lo", 0, "x"))
     assert NOTES == ("F.lo", "F.hi")
     with pytest.raises(CodeError, match="are state variables"):
-        signatures(parse(TOP.replace("walk(s): v + s*n", "walk(t): v + t*n")))
+        signatures(parse(TOP.replace("walk(s):v + s*n", "walk(t):v + t*n")))
 
 
 @pytest.mark.parametrize(
     "wrong, right, read_with",
     [
         ("walk(s)", "walk()", signatures),
-        ("vib(c, p)", "vib(c)", templates),
-        ("vib(c, p)", "vib(c, p, q)", signatures),
+        ("vib(c,p)", "vib(c)", templates),
+        ("vib(c,p)", "vib(c,p,q)", signatures),
         ("add(d)", "add()", templates),
     ],
 )
@@ -260,7 +260,7 @@ def test_a_document_s_program_templates_are_their_kinds_and_parameters():
         if isinstance(s, Tree) and s.data.startswith("def_")
         for k, b in zip(s.children[::2], s.children[1::2])
     }
-    assert program_reads(bodies["arp(a, b)"]) == ("a", "b")
+    assert program_reads(bodies["arp(a,b)"]) == ("a", "b")
     assert program_reads(bodies["fl(c)"], ("c",)) == ("c",)
     assert not program_reads(bodies["fl(c)"]) and not program_reads(bodies["c1"])
 
@@ -268,17 +268,17 @@ def test_a_document_s_program_templates_are_their_kinds_and_parameters():
 @pytest.mark.parametrize(
     "old, new, match",
     [
-        ("arp(a, b): [", "arp(a, b, d): [", r"arp\(a, b, d\): undeclared \[\], unread \['d'\]"),
-        ("pt(b): [", "pt(): [", r"pt\(\): undeclared \['b'\]"),
-        ("fl(c): c", "fl(): c", r"fl\(\): undeclared \['c'\]"),
-        ("route: 3,", "route: m,", r"c1: reads \['m'\] and declares no parameter"),
-        ("pw1: pt(4)", "pw1: pt(q)", r"pw1: reads \['q'\]"),
-        ("ctrl: arp(7,-4)", "ctrl: arp(7,z)", r"parameters \['z'\] read outside a template"),
-        ("!run:arp(1,2)", "!run:arp(1,y)", r"\['y'\] read outside"),
-        ("{pw: walk(b)}", "{pw: 2*b}", "2\\*b: a parameter is a whole cell value"),
-        ("run: fl(a)}", "run: ctrl[{ctrl: a}, end]}", "an inline program reads no parameter, a"),
-        ("fl(c): c", "arp(c): c", "program template arp is defined twice"),
-        ("fl(c): c", "walk(c): c", r"\['walk'\] name both a program and a modulator template"),
+        ("arp(a,b):[", "arp(a,b,d):[", r"arp\(a,b,d\): undeclared \[\], unread \['d'\]"),
+        ("pt(b):[", "pt():[", r"pt\(\): undeclared \['b'\]"),
+        ("fl(c):c", "fl():c", r"fl\(\): undeclared \['c'\]"),
+        ("route:3,", "route:m,", r"c1: reads \['m'\] and declares no parameter"),
+        ("pw1:pt(4)", "pw1:pt(q)", r"pw1: reads \['q'\]"),
+        ("ctrl:arp(7,-4)", "ctrl:arp(7,z)", r"parameters \['z'\] read outside a template"),
+        (" run:arp(1,2)", " run:arp(1,y)", r"\['y'\] read outside"),
+        ("{pw:walk(b)}", "{pw:2*b}", "2\\*b: a parameter is a whole cell value"),
+        ("run:fl(a)}", "run:ctrl[{ctrl:a},end]}", "an inline program reads no parameter, a"),
+        ("fl(c):c", "arp(c):c", "program template arp is defined twice"),
+        ("fl(c):c", "walk(c):c", r"\['walk'\] name both a program and a modulator template"),
     ],
 )
 def test_program_templates_outside_the_rules_are_refused(old, new, match):
@@ -291,29 +291,29 @@ def test_program_templates_outside_the_rules_are_refused(old, new, match):
 
 
 def test_a_cell_expression_naming_no_parameter_is_no_template_s_concern():
-    tree = parse(PROGRAMS.replace("{pw: walk(b)}", "{pw: 2*q, res: b}"))
+    tree = parse(PROGRAMS.replace("{pw:walk(b)}", "{pw:2*q,res:b}"))
     assert programs(tree)["pt"] == ("pw", ("b",))
 
 
 CHECKED = (
-    "unitracker: 2.1\nmeta: {title: T}\ntables:\n  Fo: [1]\n  Nx: [2]\n"
-    "mod:\n  f(a): v + a + Fo[phi] + Nx[n]\n  g(a): |\n    lda #a\n    sta v\n    rts\n"
-    "ctrl:\n  h(a): [{ctrl: a}, end]\n"
-    "phrase:\n  p1: [C4!pw:f(1)!cut:asm{lda Fo.lo; sta v; rts}!freq:'v + 1']\n"
-    "song:\n  - play: [p1]\n  - end\n"
+    "unitracker:2.2\nmeta:{title:T}\ntables:\n Fo:[1]\n Nx:[2]\n"
+    "mod:\n f(a):v + a + Fo[phi] + Nx[n]\n g(a):|\n\tlda #a\n\tsta v\n\trts\n"
+    "ctrl:\n h(a):[{ctrl:a},end]\n"
+    "phrase:\n p1:[C4 pw:f(1) cut:asm{lda Fo.lo; sta v; rts} freq:'v + 1']\n"
+    "song:\n - play:[p1]\n - end\n"
 )
 
 
 @pytest.mark.parametrize(
     "old, new, error",
     [
-        ("!freq:'v + 1'", "!freq:'v + q'", r"unbound parameters \['q'\]"),
-        ("!freq:'v + 1'", "!freq:'v + f'", "a template is bound by a call"),
+        (" freq:'v + 1'", " freq:'v + q'", r"unbound parameters \['q'\]"),
+        (" freq:'v + 1'", " freq:'v + f'", "a template is bound by a call"),
         ("asm{lda Fo.lo;", "asm{lda #a; lda Fo.lo;", r"anonymous body reads \['a'\]"),
         ("asm{lda Fo.lo;", "asm{lda Gx.lo;", "unknown table 'Gx'"),
         ("+ Fo[phi]", "+ Gx[phi]", "unknown table 'Gx'"),
-        ("  g(a): |", "  f(b): v + b\n  g(a): |", "template f is defined twice"),
-        ("h(a): [{ctrl: a}", "f(a): [{ctrl: a}", r"\['f'\] name both"),
+        (" g(a):|", " f(b):v + b\n g(a):|", "template f is defined twice"),
+        ("h(a):[{ctrl:a}", "f(a):[{ctrl:a}", r"\['f'\] name both"),
     ],
 )
 def test_a_document_is_checked_where_it_is_read(old, new, error):
@@ -337,4 +337,4 @@ def test_one_rule_excludes_a_parameter_name_from_every_signature(name):
 def test_only_the_note_table_s_names_are_no_table_s(table):
     """Fo and Nx are tables; F and N are not."""
     with pytest.raises(CanonicalError):
-        parse(CHECKED.replace("  Fo: [1]", f"  {table}: [1]"))
+        parse(CHECKED.replace(" Fo:[1]", f" {table}:[1]"))

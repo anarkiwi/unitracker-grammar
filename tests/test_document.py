@@ -1,9 +1,6 @@
 """The document model: built directly or read, printed in its one text and read back equal."""
 
-import random
-
 import pytest
-import yaml
 
 from unitracker_grammar import CanonicalError, parse
 from unitracker_grammar.code import CodeError
@@ -41,7 +38,7 @@ from unitracker_grammar.document import (
 
 VIB = Code.of("lda t\nbmi up\nclc\nup:\nadc #c\nsta t\nlda v\nsta v+1,x\nrts")
 BODY = Code.of("lda t\nbmi up\nclc\nup:\nadc #3\nsta t\nlda v\nsta v+1,x\nrts")
-META = (("title", "'Song, the first'"), ("author", "A"))
+META = (("title", "'Song,the first'"), ("author", "A"))
 
 
 def built() -> Document:
@@ -75,7 +72,7 @@ def built() -> Document:
                 "ad": 9,
                 "sr": 240,
             },
-            {"pw": Expr("16*min(3, phi) + 512"), "cut": 2048, "res": 15, "route_on": 3, "mode": 16},
+            {"pw": Expr("16*min(3,phi) + 512"), "cut": 2048, "res": 15, "route_on": 3, "mode": 16},
             [("run", "pw1"), ("vol", 15), ("pw", HOLD), ("b.pw", BODY), ("b.pw", RESET)],
             {"run": Run("pw", Program([{"pw": 5}])), "route": 3, "route_off": 2},
         ],
@@ -99,7 +96,7 @@ def built() -> Document:
         Event("D#2", Instrument({"ad": 1, "freq": Expr("v + 3")}), {"cut": BODY, "ctrl": 33}),
         Event("on", None, {"run": Run("ctrl", Program([{"ctrl": 64}])), "b.pw": Call("ptab", ())}),
         Event("E1", None, {"freq": 256, "mode": 16, "vol": 15, "ad": 1, "sr": 2, "tempo": 8}),
-        Event("-", None, [("run", NONE), ("cut", Expr("min(v, 1)")), ("pw", Call("ptab"))]),
+        Event("-", None, [("run", NONE), ("cut", Expr("min(v,1)")), ("pw", Call("ptab"))]),
         Event("-", None, [("pw", Call("ptab")), ("pw", RESET), ("tick.freq", RESET)]),
         Event("C4", Instrument({"ctrl": Call("arp", (7, 4)), "restart": Call("hr", (2,))})),
         Event("-", None, {"run": Call("arp", (3, 4))}),
@@ -116,7 +113,7 @@ def built() -> Document:
             ("c2", Program([{"run": Call("arp", (7, Signed(-4)))}])),
         ],
         "pw": [("pw1", Expr("95*phi + 296")), ("pw2", Call("walk", (3,)))],
-        "filter": [("f1", 1024), ("f2", Expr("min(v, 9)"))],
+        "filter": [("f1", 1024), ("f2", Expr("min(v,9)"))],
         "phrase": [("p1", events), ("p2", [Event("C4", "i1"), Event("-", steps=3)])],
     }
     return Document(
@@ -126,7 +123,7 @@ def built() -> Document:
             (signature("vib", ["c"]), VIB),
             (signature("ptab"), Expr("PL[phi]")),
             ("note()", Expr("F(N)")),
-            (signature("walk", ["s"]), Expr("max(v, s)")),
+            (signature("walk", ["s"]), Expr("max(v,s)")),
         ],
         defs=defs,
         init=[Event("-", "i1", {"vol": 15}), Event("-", "i1"), Event("-", "i1")],
@@ -146,25 +143,71 @@ def test_a_built_document_prints_its_canonical_text_and_reads_back_equal():
     parse(text)
     assert read(text) == doc
     assert printed(read(text)) == text
-    assert "  c1: [{ctrl: 65, note: +0, tick.freq: vib(3), freq: none}," in text
-    assert "!pw:'v + 40'!cut:none" in text and "-!run:none!pw:ptab()!cut:'min(v," in text
-    assert "  arp(a, b): [{ctrl: 65, note: +a, ad: b}, {pw: walk(b)}, end]\n" in text
-    assert "c2: [{run: arp(7,-4)}, end]" in text and "-!run:arp(3,4)" in text
-    assert "  walk(s): max(v, s)\n" in text and "  f2: 'min(v, 9)'\n" not in text
-    assert "  f2: min(v, 9)\n" in text and "pw2: walk(3)\n" in text
-    assert (
-        "slots: {freq: {wave: {mod: note(), reset: [row.note]}, tick: {hold: [note-1, row]}}"
-        in text
-    )
-    assert "  vib(c): |\n    lda t\n    bmi up\n    clc\n    up:\n" in text
-    assert "  - play: [p1, p2+2, [C4, -*3]-1]\n  - play: [~, p2, end]\n  - {loop: 0}\n" in text
-    assert "ctrl: 129, mask: 8, gate: 0," in text and "route_on: 3" in text
-    assert "route: 3, route_off: 2, run: pw[" in text and "!res:15!route:1!vtempo:8" in text
-    assert "sta v+1,x; rts}, b.pw: reset,\n      run: pw1" in text
-    assert (
-        "regs: [31, 11, 0, 8, 65, 9, 240, 0," in text
-        and "-!pw:ptab()!pw:reset!tick.freq:reset" in text
-    )
+    assert " c1:[{ctrl:65,note:+0,tick.freq:vib(3),freq:none}," in text
+    assert " pw:'v + 40' cut:none" in text and "- run:none pw:ptab() cut:'min(v," in text
+    assert " arp(a,b):[{ctrl:65,note:+a,ad:b},{pw:walk(b)},end]\n" in text
+    assert "c2:[{run:arp(7,-4)},end]" in text and "- run:arp(3,4)" in text
+    assert " walk(s):max(v,s)\n" in text and " f2:'min(v,9)'\n" not in text
+    assert " f2:min(v,9)\n" in text and "pw2:walk(3)\n" in text
+    assert "slots:{freq:{wave:{mod:note(),reset:[row.note]},tick:{hold:[note-1,row]}}" in text
+    assert " vib(c):|\n\tlda t\n\tbmi up\n\tclc\n\tup:\n" in text
+    assert " - play:[p1,p2+2,[C4,-*3]-1]\n - play:[~,p2,end]\n - {loop:0}\n" in text
+    assert "ctrl:129,mask:8,gate:0," in text and "route_on:3" in text
+    assert "route:3,route_off:2,run:pw[" in text and " res:15 route:1 vtempo:8" in text
+    assert "sta v+1,x; rts},b.pw:reset,run:pw1" in text and "gate:0,note:g5,ad:9" in text
+    assert "regs:[31,11,0,8,65,9,240,0," in text and "- pw:ptab() pw:reset tick.freq:reset" in text
+
+
+NOTES = """unitracker:2.2
+meta:{title:T}
+phrase:
+ p1:[C4,E,-*2,g,C5.{ctrl:[{note:G4},end]},d,off,f,C-1,D,c0]
+init:[C4,c4,-]
+song:
+ - play:[p1-12,p2=[a3,B]+2,[c-2,C]]
+ - end
+"""
+
+
+def test_a_phrase_note_leaves_out_the_octave_it_repeats():
+    """A sharp is its letter in lower case; in a phrase, each its own context, a note's octave
+    is the previous note's where it leaves it out, rests and gates between them keeping it; the
+    first note, init's notes and a program row's note always carry it; the model is absolute
+    and the transpose applies after."""
+    doc = read(NOTES)
+    assert printed(doc) == NOTES
+    notes = [e.note for e in doc.records("phrase")["p1"]]
+    assert notes == ["C4", "E4", "-", "G#4", "C5", "D#5", "off", "F#5", "C-1", "D-1", "C#0"]
+    assert doc.records("phrase")["p1"][4].ins.get("ctrl").rows[0].get("note") == "G4"
+    assert [e.note for e in doc.init] == ["C4", "C#4", "-"]
+    plays = doc.rows[0].play
+    assert plays[1].phrase == Def("p2", (Event("A#3"), Event("B3"))) and plays[1].transpose == 2
+    assert [e.note for e in plays[2].phrase] == ["C#-2", "C-2"]
+
+
+@pytest.mark.parametrize(
+    "old, new",
+    [
+        ("p1:[C4,E,", "p1:[C,E,"),
+        ("[C4,c4,-]", "[C4,c,-]"),
+        ("p2=[a3,B]", "p2=[a,B]"),
+        ("p1:[C4,E,", "p1:[C#4,E,"),
+        ("[c-2,C]", "[e-2,C]"),
+        ("note:G4", "note:G"),
+    ],
+)
+def test_a_note_without_its_octave_where_none_comes_before_is_refused(old, new):
+    """A phrase's first note, an init note and a program row's note carry their octave; a sharp
+    has one spelling, and E and B none."""
+    assert old in NOTES
+    with pytest.raises(CanonicalError):
+        read(NOTES.replace(old, new))
+
+
+@pytest.mark.noncanonical
+def test_a_repeated_octave_reads_as_the_same_note_and_prints_left_out():
+    doc = read(NOTES.replace("p1:[C4,E,", "p1:[C4,E4,"))
+    assert doc == read(NOTES) and printed(doc) == NOTES
 
 
 def test_a_cell_s_repeated_keys_keep_the_order_written():
@@ -176,7 +219,7 @@ def test_a_cell_s_repeated_keys_keep_the_order_written():
     assert event.commands == (("pw", RESET), ("pw", Call("ptab")), ("ad", 1))
     doc = replace(built(), rows=(SongRow([Play([event]), CONT, END]),), loop=None)
     text = printed(doc)
-    assert "[-!pw:reset!pw:ptab()!ad:1]" in text and read(text) == doc
+    assert "[- pw:reset pw:ptab() ad:1]" in text and read(text) == doc
 
 
 def test_a_constructor_orders_keys_as_the_grammar_and_stores_tuples():
@@ -187,7 +230,7 @@ def test_a_constructor_orders_keys_as_the_grammar_and_stores_tuples():
     assert Instrument({"ad": 1}).get("ad") == 1
     assert Program([{"ctrl": 1}]).rows == (Row({"ctrl": 1}),)
     assert Event("C4", commands={"legato": True, "run": "c1"}).commands[0] == ("run", "c1")
-    assert base("tick.freq") == "freq" and signature("f", ("a", "b")) == "f(a, b)"
+    assert base("tick.freq") == "freq" and signature("f", ("a", "b")) == "f(a,b)"
     with pytest.raises(ValueError):
         Row({"bogus": 1})
     with pytest.raises(ValueError):
@@ -205,21 +248,21 @@ def test_a_document_s_records_and_slots_are_looked_up_by_kind_and_cell():
 
 def test_signed_and_expressions_print_as_written():
     assert str(Signed(3)) == "+3" and repr(Signed(-2)) == "-2" and Signed(0) == 0
-    assert str(Expr("v + 1")) == "v + 1" and VERSION == "2.1"
-    assert printed(built()).startswith("unitracker: 2.1\n")
+    assert str(Expr("v + 1")) == "v + 1" and VERSION == "2.2"
+    assert printed(built()).startswith("unitracker:2.2\n")
 
 
-QUOTED = """unitracker: 2.1
-meta: {title: T, author: A}
+QUOTED = """unitracker:2.2
+meta:{title:T,author:A}
 ins:
-  i1: {pw: 'v + 1', freq: 'min(v, 2)'}
+ i1:{pw:'v + 1',freq:'min(v,2)'}
 pw:
-  pw1: 'v + 1'
+ pw1:'v + 1'
 phrase:
-  p1: [C4.i1!cut:'v + 2']
+ p1:[C4.i1 cut:'v + 2']
 song:
-  - play: [p1]
-  - end
+ - play:[p1]
+ - end
 """
 
 
@@ -231,89 +274,25 @@ def test_an_expression_quoted_where_it_need_not_be_reads_as_its_text_and_prints_
     out = printed(doc)
     assert out != QUOTED and read(out) == doc and printed(read(out)) == out
     assert doc.records("pw")["pw1"] == Expr("v + 1") == doc.records("ins")["i1"].get("pw")
-    assert "  i1: {pw: v + 1, freq: 'min(v, 2)'}\npw:\n  pw1: v + 1\n" in out
-    assert "p1: [C4.i1!cut:'v + 2']" in out
+    assert " i1:{pw:v + 1,freq:'min(v,2)'}\npw:\n pw1:v + 1\n" in out
+    assert "p1:[C4.i1 cut:'v + 2']" in out
 
 
-class _Dumper(yaml.SafeDumper):  # pylint: disable=too-many-ancestors
-    """PyYAML as writers use it: block sequences indented, every string plain."""
-
-    def increase_indent(self, flow=False, indentless=False):
-        return super().increase_indent(flow, False)
-
-    def choose_scalar_style(self):
-        return ""
-
-
-def _plain(dumper, data):
-    if isinstance(data, list) and getattr(data, "flow", False):
-        return dumper.represent_sequence("tag:yaml.org,2002:seq", data, flow_style=True)
-    return dumper.represent_list(data)
-
-
-class _Flow(list):
-    flow = True
-
-
-_Dumper.add_representer(_Flow, _plain)
-
-ATOMS = ["C4.i1", "-", "-*3", "C#-1", "D#2!tick.freq:vib(1,-4,32)", "-!pw:'v + 40'", "B1!run:c12"]
-
-
-@pytest.mark.parametrize("seed", range(40))
-def test_lines_wrap_as_pyyaml_wraps_them_at_width_100(seed):
-    rng = random.Random(seed)
-    tables = [rng.randrange(70000) for _ in range(rng.randrange(1, 120))]
-    atoms = [rng.choice(ATOMS) for _ in range(rng.randrange(1, 90))]
-    events = [read_event(a) for a in atoms]
+def test_a_line_holds_its_whole_value():
+    """No line wraps: a long phrase and table print on their one line, and a text wrapped
+    inside a flow collection or an expression is refused."""
+    events = [Event("C4", "i1", {"pw": Expr("v + 40")}, steps=3)] * 60
     doc = Document(
         Header(meta=META),
-        tables={"T": tables},
+        tables={"T": list(range(1000, 1300))},
         defs={"phrase": [("p1", events)]},
         rows=[SongRow(["p1"])],
     )
-    tree = {
-        "tables": {"T": _Flow(tables)},
-        "phrase": {"p1": _Flow(atoms)},
-        "song": [{"play": _Flow(["p1"])}, "end"],
-    }
-    expected = yaml.dump(tree, Dumper=_Dumper, sort_keys=False, allow_unicode=True, width=100)
     text = printed(doc)
-    assert text.split("tables:\n", 1)[1] == expected.split("tables:\n", 1)[1]
-    assert read(text) == doc
-
-
-def read_event(atom: str) -> Event:
-    """The event of an atom, read from a one-event phrase."""
-    one = Document(Header(meta=META), defs={"phrase": [("p1", [Event("C4")])]}, rows=[["p1"]])
-    text = printed(one).replace("  p1: [C4]\n", f"  p1: [{atom}]\n")
-    return read(text).records("phrase")["p1"][0]
-
-
-HAND = """unitracker: 2.1
-meta: {title: T, author: A}
-ins:
-  i1: {pw: 95*phi
-    + 296, restart: [{hold: 3, mask: 8, gate: 0}, {},
-    end]}
-  i2: {pw: 95*phi
-      + 296, restart: [{hold: 3, mask: 8, gate: 0}, {},
-      end]}
-phrase:
-  p1: [
-    C4.i1, -*3]
-song:
-  - play: [p1, p1, p1]
-  - {loop: 0}
-"""
-
-
-@pytest.mark.noncanonical
-def test_a_text_read_wrapped_otherwise_prints_its_one_canonical_text():
-    doc = read(HAND)
-    out = printed(doc)
-    assert out != HAND and read(out) == doc and printed(read(out)) == out
-    assert "  i1: {pw: 95*phi + 296, restart: [{hold: 3, mask: 8, gate: 0}, {}, end]}\n" in out
+    assert len(text.splitlines()) == 9 and read(text) == doc
+    for wrapped in (text.replace(",C.", ",\n  C.", 1), text.replace(" + 40", "\n  + 40", 1)):
+        with pytest.raises(CanonicalError):
+            read(wrapped)
 
 
 def test_a_text_outside_the_grammar_is_refused_at_its_place():
@@ -323,7 +302,7 @@ def test_a_text_outside_the_grammar_is_refused_at_its_place():
         Code.of("lda v\n")
 
 
-def test_top_level_definitions_print_after_the_templates_at_two_spaces():
+def test_top_level_definitions_print_after_the_templates_at_one_space():
     doc = Document(
         Header(meta=META),
         mods=[("note()", Expr("F(N)"))],
@@ -336,8 +315,8 @@ def test_top_level_definitions_print_after_the_templates_at_two_spaces():
         rows=[SongRow(["p1"])],
     )
     text = printed(doc)
-    assert "  note(): F(N)\nins:\n  i1: {ad: 9}\nctrl:\n  c1: [{ctrl: 65}, end]\nphrase:" in text
-    assert "  p1: [C4.i1]\ninit: [-.i1]\nsong:\n  - play: [p1]\n" in text
+    assert " note():F(N)\nins:\n i1:{ad:9}\nctrl:\n c1:[{ctrl:65},end]\nphrase:" in text
+    assert " p1:[C4.i1]\ninit:[-.i1]\nsong:\n - play:[p1]\n" in text
     assert list(doc.records("ins")) == ["i1"]
     assert read(text) == doc and printed(read(text)) == text
 
@@ -345,15 +324,15 @@ def test_top_level_definitions_print_after_the_templates_at_two_spaces():
 def test_reset_is_a_cell_s_keyword_and_no_parameter():
     """``reset`` stands as a cell's value in a row and a command, never as a template's
     parameter; ``regs`` is a list of integers."""
-    head = "unitracker: 2.1\nmeta: {title: T}\n"
-    song = "phrase:\n  p1: [C4!tick.freq:reset]\nsong:\n  - play: [p1]\n  - end\n"
-    text = head + "regs: [1, 2]\nctrl:\n  c1: [{pw: reset, cut: reset}, end]\n" + song
+    head = "unitracker:2.2\nmeta:{title:T}\n"
+    song = "phrase:\n p1:[C4 tick.freq:reset]\nsong:\n - play:[p1]\n - end\n"
+    text = head + "regs:[1,2]\nctrl:\n c1:[{pw:reset,cut:reset},end]\n" + song
     assert printed(read(text)) == text
     assert read(text).header.regs == (1, 2)
     with pytest.raises(CanonicalError):
-        read(head + "ctrl:\n  t(reset): [{ad: reset}, end]\n" + song)
+        read(head + "ctrl:\n t(reset):[{ad:reset},end]\n" + song)
     with pytest.raises(CanonicalError):
-        read(head + "regs: [1, x]\n" + song)
+        read(head + "regs:[1,x]\n" + song)
 
 
 @pytest.mark.parametrize(
@@ -396,21 +375,20 @@ def test_a_pulse_or_filter_record_of_one_binding_is_that_binding():
     ] == kept
     assert Section("ctrl", [("c1", Program([{"pw": 3}]))]).records[0][1] == Program([{"pw": 3}])
     text = printed(replace(built(), defs=built().defs[:3] + (pulse,) + built().defs[4:]))
-    assert "pw:\n  pw1: v + 1\n  pw2: 3\n" in text
+    assert "pw:\n pw1:v + 1\n pw2:3\n" in text
     with pytest.raises(CanonicalError, match="written as the binding"):
-        read(text.replace("pw1: v + 1", "pw1: [{pw: v + 1}, end]"))
-    assert read(text.replace("pw1: v + 1", "pw1: [{pw: none}, end]"))
+        read(text.replace("pw1:v + 1", "pw1:[{pw:v + 1},end]"))
+    assert read(text.replace("pw1:v + 1", "pw1:[{pw:none},end]"))
 
 
-FIRST = """unitracker: 2.1
-meta: {title: T}
-slots: {freq: {base: {mod: note()='F(N)'()}, tick: {}}}
+FIRST = """unitracker:2.2
+meta:{title:T}
+slots:{freq:{base:{mod:note()='F(N)'()},tick:{}}}
 phrase:
-  p1: [C4.i3={ad: 9, ctrl: c1=[{ctrl: 65}, end], pw: pw2=v + 3}!pw:w(s)='v + s'(2)!tick.freq:vib(l)=asm{lda #l; sta v; rts}(4),
-    D4.i3!run:arp(a, b)=ctrl[{ctrl: a, note: +b}, end](65,4), -!run:c1]
+ p1:[C4.i3={ad:9,ctrl:c1=[{ctrl:65},end],pw:pw2=v + 3} pw:w(s)='v + s'(2) tick.freq:vib(l)=asm{lda #l; sta v; rts}(4),D.i3 run:arp(a,b)=ctrl[{ctrl:a,note:+b},end](65,4),- run:c1]
 song:
-  - play: [p1, p2=[C4.i3]+2, [E4.i4={ctrl: hr(h)=[{hold: h}, end](2), pw: pt(b)=[{pw: b}, end](9)}]]
-  - end
+ - play:[p1,p2=[C4.i3]+2,[E4.i4={ctrl:hr(h)=[{hold:h},end](2),pw:pt(b)=[{pw:b},end](9)}]]
+ - end
 """
 
 
@@ -425,7 +403,7 @@ def test_a_definition_stands_at_its_first_use_and_moves_to_its_section():
     assert ins.name == "i3" and ins.value.get("ctrl") == Def("c1", Program([{"ctrl": 65}]))
     top = top_level(doc)
     assert top.records("pw") == {"pw2": Expr("v + 3"), "pt(b)": Expr("b")}
-    assert top.records("ctrl")["arp(a, b)"] == Program([{"ctrl": "a", "note": "+b"}])
+    assert top.records("ctrl")["arp(a,b)"] == Program([{"ctrl": "a", "note": "+b"}])
     assert [k for k, _ in top.mods] == ["note()", "w(s)", "vib(l)"]
     assert top.records("ins")["i4"].get("pw") == Call("pt", (9,))
     text = printed(top)
@@ -447,11 +425,11 @@ def test_first_use_keeps_what_the_song_does_not_reach_in_its_section():
 @pytest.mark.parametrize(
     "old, new, match",
     [
-        ("-!run:c1]", "-!run:c1, -.i3={ad: 1}]", "i3 is defined twice"),
-        ("[C4.i3={ad: 9", "[C4.i3, C4.i3={ad: 9", "i3 is referenced before its definition"),
-        ("phrase:\n", "ctrl:\n  c1: [end]\nphrase:\n", "c1 is defined twice"),
-        ("[C4.i3={ad: 9", "[C4!pw:w(1), C4.i3={ad: 9", "w is referenced before its definition"),
-        ("-!run:c1]", "-!pw:q(a)=[{pw: a}, end](1)]", "a program template stands"),
+        ("- run:c1]", "- run:c1,-.i3={ad:1}]", "i3 is defined twice"),
+        ("[C4.i3={ad:9", "[C4.i3,C4.i3={ad:9", "i3 is referenced before its definition"),
+        ("phrase:\n", "ctrl:\n c1:[end]\nphrase:\n", "c1 is defined twice"),
+        ("[C4.i3={ad:9", "[C4 pw:w(1),C4.i3={ad:9", "w is referenced before its definition"),
+        ("- run:c1]", "- pw:q(a)=[{pw:a},end](1)]", "a program template stands"),
     ],
 )
 def test_a_first_use_definition_is_one_and_follows_no_reference(old, new, match):

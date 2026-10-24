@@ -1,6 +1,7 @@
 """The canonical document as a typed model: :func:`read` builds it from a text, its classes
-build one directly, and :func:`printed` writes its one canonical text, wrapped as PyYAML's
-emitter wraps at width 100 (the README's "Documents" section).
+build one directly, and :func:`printed` writes its one canonical text (the README's
+"Documents" section). A note is absolute in the model (``C#4``); the text writes a sharp's letter
+in lower case and leaves out a phrase note's octave where it is the previous note's.
 """
 
 import re
@@ -22,7 +23,6 @@ __all__ = [
     "NONE",
     "RESET",
     "VERSION",
-    "WIDTH",
     "Call",
     "Code",
     "Def",
@@ -48,12 +48,10 @@ __all__ = [
     "top_level",
 ]
 
-VERSION, WIDTH = "2.1", 100
+VERSION = "2.2"
 NONE, HOLD, RESET, CONT, END = "none", "hold", "reset", "~", "end"
 KINDS = ("restart", "ins", "ctrl", "pw", "filter", "phrase")
 CELLS = ("freq", "pw", "cut")
-_HARD = "\x00"  # a space the grammar spells literally, never a line wrap
-_WRAP = re.compile(r"\n +")
 _INT = re.compile(r"\d+")
 _ROW_KEYS = (
     "wait hold ctrl mask gate note ad sr pw cut res route route_on route_off mode freq run vol"
@@ -95,7 +93,7 @@ class Code:
 
 
 class Run(NamedTuple):
-    """An inline program after its kind in a ``run:`` or ``!run:``: ``pw[{pw: 5}, end]``."""
+    """An inline program after its kind in a ``run:`` or `` run:``: ``pw[{pw:5},end]``."""
 
     kind: str
     program: object
@@ -103,9 +101,10 @@ class Run(NamedTuple):
 
 class Def(NamedTuple):
     """A definition at its first reference: its name (a template's signature) and value, and
-    for a template the arguments of its call there (None for a named definition): ``i3={ad:
-    9}`` is ``Def("i3", Instrument(...))``, ``vib(c)=asm{...}(4)`` ``Def("vib(c)", Code(...),
-    (4,))``; a program template's body is a Program, a Run where a ``run:`` starts it."""
+    for a template the arguments of its call there (None for a named definition):
+    ``i3={ad:9}`` is ``Def("i3", Instrument(...))``, ``vib(c)=asm{...}(4)``
+    ``Def("vib(c)", Code(...), (4,))``; a program template's body is a Program, a Run where a
+    ``run:`` starts it."""
 
     name: str
     value: object
@@ -167,7 +166,7 @@ class Row(_Node):
 
 @dataclass(frozen=True)
 class Program(_Node):
-    """A program: its rows (Rows, or dicts), then ``end`` (``loop`` None) or ``{loop: k}``."""
+    """A program: its rows (Rows, or dicts), then ``end`` (``loop`` None) or ``{loop:k}``."""
 
     rows: tuple = ()
     loop: int | None = None
@@ -221,7 +220,7 @@ _CELL = {"pw": "pw", "filter": "cut"}
 
 def _short(kind: str, value):
     """A pulse or filter record's value: a program of one row binding the cell's first slot,
-    ``[{pw: b}, end]``, is its binding ``b``."""
+    ``[{pw:b},end]``, is its binding ``b``."""
     rows = value.rows if isinstance(value, Program) and value.loop is None else ()
     keys = rows[0].keys if len(rows) == 1 else ()
     if len(keys) == 1 and keys[0][0] == _CELL.get(kind) and not isinstance(keys[0][1], str):
@@ -335,8 +334,8 @@ class Document(_Node):  # pylint: disable=too-many-instance-attributes
 
 
 def signature(name: str, params=()) -> str:
-    """A template's key, ``name(a, b)``."""
-    return f"{name}({', '.join(params)})"
+    """A template's key, ``name(a,b)``."""
+    return f"{name}({','.join(params)})"
 
 
 # ---- reading ------------------------------------------------------------------------------
@@ -354,7 +353,7 @@ def _leaf(token: Token):
     if token.type == "CALL":
         name, args = _code.call(token).name, token[token.index("(") + 1 : -1].split(",")
         return Call(name, tuple(_argument(a) for a in args if a))
-    return _WRAP.sub(" ", str(token))
+    return str(token)
 
 
 def _argument(text: str):
@@ -421,7 +420,7 @@ class _ToModel(Transformer):
 
     @v_args(meta=True)
     def expr(self, meta, _children):
-        return Expr(_WRAP.sub(" ", self.source[meta.start_pos : meta.end_pos]))
+        return Expr(self.source[meta.start_pos : meta.end_pos])
 
     @staticmethod
     def start(children):
@@ -627,203 +626,153 @@ def read(text: str) -> Document:
 # ---- printing -----------------------------------------------------------------------------
 
 
-class _Seq(NamedTuple):
-    """A flow collection: its items, each a list of parts (scalars and collections), and its
-    brackets."""
-
-    items: list
-    open: str = "["
-    close: str = "]"
+def _map(pairs) -> str:
+    return "{" + ",".join(f"{k}:{v}" for k, v in pairs) + "}"
 
 
-class _Emitter:
-    """PyYAML's flow layout: past the width, a break before an item at its collection's
-    indentation, or at a scalar's space at that plus 2."""
-
-    def __init__(self, width: int):
-        self.width, self.out, self.column = width, [], 0
-
-    def write(self, text: str):
-        """``text`` on the current line."""
-        self.out.append(text)
-        self.column += len(text)
-
-    def indent(self, indent: int):
-        """A line break, then ``indent`` spaces."""
-        self.out.append("\n" + " " * indent)
-        self.column = indent
-
-    def scalar(self, text: str, indent: int):
-        """A plain scalar, wrapping at a space past the width."""
-        words = text.split(" ")
-        self.write(words[0])
-        for word in words[1:]:
-            if self.column > self.width:
-                self.indent(indent)
-            else:
-                self.write(" ")
-            self.write(word)
-
-    def parts(self, parts, indent: int):
-        """``parts`` within a collection (or a block mapping) of ``indent``."""
-        for part in parts:
-            if isinstance(part, str):
-                self.scalar(part, indent + 2)
-            else:
-                self.seq(part, indent + 2)
-
-    def seq(self, seq: _Seq, indent: int):
-        """A flow collection of ``indent``, wrapping before an item past the width."""
-        self.write(seq.open)
-        for i, item in enumerate(seq.items):
-            if i:
-                self.write(",")
-            if self.column > self.width:
-                self.indent(indent)
-            elif i:
-                self.write(" ")
-            self.parts(item, indent)
-        self.write(seq.close)
-
-    def text(self) -> str:
-        """The text written."""
-        return "".join(self.out).replace(_HARD, " ")
+def _seq(items) -> str:
+    return "[" + ",".join(items) + "]"
 
 
-def _line(prefix: str, parts, indent: int) -> str:
-    """A block line: ``prefix`` then its value's ``parts``, in a block mapping of ``indent``."""
-    emitter = _Emitter(WIDTH)
-    emitter.write(prefix)
-    emitter.parts(parts, indent)
-    return emitter.text() + "\n"
-
-
-def _map(pairs) -> _Seq:
-    return _Seq([[f"{k}:{_HARD}", *v] for k, v in pairs], "{", "}")
-
-
-def _hard(text: str) -> str:
-    return text.replace(" ", _HARD)
-
-
-def _binding(value, where: str = "flow") -> list:
-    """The parts of a binding or a record's value, ``where`` ``flow``, ``block`` or ``cmd``
-    (a command or a slot's default, whose expressions are always quoted)."""
+def _binding(value, where: str = "flow") -> str:
+    """The text of a binding or a record's value, ``where`` ``flow``, ``block`` or ``cmd`` (a
+    command or a slot's default, whose expressions are always quoted)."""
     # pylint: disable=too-many-return-statements
     if isinstance(value, Def):
         return _defined(value, where)
     if isinstance(value, Expr):
         quoted = where == "cmd" or where == "flow" and "," in value.text
-        return [f"'{value.text}'" if quoted else value.text]
+        return f"'{value.text}'" if quoted else value.text
     if isinstance(value, Code):
-        return [_hard(_code.inline(value.statements))]
+        return _code.inline(value.statements)
     if isinstance(value, Program):
-        return [_program(value)]
+        return _program(value)
     if isinstance(value, Run):
-        return [value.kind, _program(value.program)]
+        return value.kind + _program(value.program)
     if isinstance(value, Instrument):
-        return [_map((k, _binding(v)) for k, v in value.fields)]
-    return [_hard(str(value))]
+        return _map((k, _binding(v)) for k, v in value.fields)
+    return str(value)
 
 
-def _defined(value: Def, where: str) -> list:
-    """The parts of a definition at its first use."""
-    head = [_hard(f"{value.name}=")]
+def _defined(value: Def, where: str) -> str:
+    """The text of a definition at its first use."""
     if value.args is None and _kind(value.name) == "phrase":
-        return head + [_events(value.value)]
+        return f"{value.name}={_events(value.value)}"
     if value.args is None:
-        return head + _binding(value.value, where)
-    args = f"({','.join(map(str, value.args))})"
-    return head + _binding(value.value, "cmd" if isinstance(value.value, Expr) else where) + [args]
+        return f"{value.name}={_binding(value.value, where)}"
+    body = _binding(value.value, "cmd" if isinstance(value.value, Expr) else where)
+    return f"{value.name}={body}({','.join(map(str, value.args))})"
 
 
-def _program(program: Program) -> _Seq:
-    rows = [[_map((k, _binding(v)) for k, v in row.keys)] for row in program.rows]
-    loop = [_map([("loop", [str(program.loop)])])]
-    return _Seq(rows + [["end"] if program.loop is None else loop])
+def _row_value(key: str, value) -> str:
+    """A row key's value: an absolute note as written (a sharp's letter in lower case)."""
+    if key == "note" and isinstance(value, str) and _ABSOLUTE.fullmatch(value):
+        return _note(value)[0]
+    return _binding(value)
 
 
-def _command(key: str, value) -> list:
+def _program(program: Program) -> str:
+    rows = [_map((k, _row_value(k, v)) for k, v in row.keys) for row in program.rows]
+    return _seq(rows + ["end" if program.loop is None else f"{{loop:{program.loop}}}"])
+
+
+def _command(key: str, value) -> str:
     if key == "legato":
-        return ["!legato"]
+        return " legato"
     if isinstance(value, tuple) and not isinstance(value, (Call, Run, Def)):
-        return [f"!{key}:{value[0]}/{value[1]}"]
-    return [f"!{key}:", *_binding(value, "cmd")]
+        return f" {key}:{value[0]}/{value[1]}"
+    return f" {key}:{_binding(value, 'cmd')}"
 
 
-def _event(event: Event) -> list:
-    parts = [event.note]
+def _event(event: Event, note: str) -> str:
+    out = note
     if event.ins is not None:
-        parts += ["."] + _binding(event.ins)
-    for key, value in event.commands:
-        parts += _command(key, value)
-    parts += ["!pw"] * event.keep_pw + ["!filter"] * event.keep_filter
-    return parts + ([] if event.steps is None else [f"*{event.steps}"])
+        out += "." + _binding(event.ins)
+    out += "".join(_command(k, v) for k, v in event.commands)
+    out += " pw" * event.keep_pw + " filter" * event.keep_filter
+    return out + ("" if event.steps is None else f"*{event.steps}")
 
 
-def _events(events) -> _Seq:
-    return _Seq([_event(e) for e in events])
+_ABSOLUTE = re.compile(r"([A-G])(#?)(-?\d+)")
 
 
-def _play(entry) -> list:
+def _note(note: str, octave=None) -> tuple[str, str | None]:
+    """A note atom as written, a sharp's letter in lower case and its octave left out where it
+    is ``octave``, and the octave it leaves for the next note (``octave`` after a rest)."""
+    found = _ABSOLUTE.fullmatch(note)
+    if found is None:
+        return note, octave
+    letter, sharp, number = found.groups()
+    return (letter.lower() if sharp else letter) + ("" if number == octave else number), number
+
+
+def _events(events, phrase: bool = True) -> str:
+    """A phrase's events (``init``'s where not ``phrase``: each note with its octave)."""
+    out, octave = [], None
+    for event in events:
+        note, octave = _note(event.note, octave if phrase else None)
+        out.append(_event(event, note))
+    return _seq(out)
+
+
+def _play(entry) -> str:
     if isinstance(entry, str):
-        return [entry]
+        return entry
     if isinstance(entry.phrase, (str, Def)):
         head = _binding(entry.phrase)
     else:
-        head = [_events(entry.phrase)]
-    return head + ([] if entry.transpose is None else [str(Signed(entry.transpose))])
+        head = _events(entry.phrase)
+    return head + ("" if entry.transpose is None else str(Signed(entry.transpose)))
 
 
 def _flat(value) -> str:
-    """A header line's flow value, never wrapped."""
+    """A header line's flow value."""
     if isinstance(value, list):
-        return "{" + ", ".join(f"{k}: {_flat(v)}" for k, v in value) + "}"
+        return "{" + ",".join(f"{k}:{_flat(v)}" for k, v in value) + "}"
     if isinstance(value, tuple):
-        return "[" + ", ".join(map(str, value)) + "]"
+        return "[" + ",".join(map(str, value)) + "]"
     return str(value)
 
 
 def _slot(slot: Slot) -> list:
-    out = [] if slot.mod is None else [("mod", "".join(_binding(slot.mod, "cmd")))]
+    out = [] if slot.mod is None else [("mod", _binding(slot.mod, "cmd"))]
     return out + [(k, tuple(getattr(slot, k))) for k in ("hold", "reset") if getattr(slot, k)]
 
 
 def _header(head: Header) -> list:
-    meta = _map((k, [v]) for k, v in head.meta)
-    lines = [f"unitracker: {VERSION}\n", _line("meta: ", [meta], 0)]
+    lines = [f"unitracker:{VERSION}\n", f"meta:{_map(head.meta)}\n"]
     if head.clock is not None:
-        rounding = "".join(f", rounding: {r}" for r in head.clock[2:])
+        rounding = "".join(f",rounding:{r}" for r in head.clock[2:])
         lines.append(
-            f"clock: {{cycles_per_tick: {head.clock[0]}, clock_hz: {head.clock[1]}{rounding}}}\n"
+            f"clock:{{cycles_per_tick:{head.clock[0]},clock_hz:{head.clock[1]}{rounding}}}\n"
         )
     if head.voices is not None:
-        lines.append(f"voices: {head.voices}\n")
+        lines.append(f"voices:{head.voices}\n")
     if head.tempo is not None:
-        lines.append(f"tempo: {_flat(head.tempo)}\n")
+        lines.append(f"tempo:{_flat(head.tempo)}\n")
     if head.slots is not None:
         cells = [(c, [(s.name, _slot(s)) for s in slots]) for c, slots in head.slots]
-        lines.append(f"slots: {_flat(cells)}\n".replace(_HARD, " "))
+        lines.append(f"slots:{_flat(cells)}\n")
     if head.order is not None:
-        lines.append(f"order: {_flat(tuple(head.order))}\n")
+        lines.append(f"order:{_flat(tuple(head.order))}\n")
     if head.state is not None:
-        lines.append(f"state: {_flat([(c, list(names)) for c, names in head.state])}\n")
+        lines.append(f"state:{_flat([(c, list(names)) for c, names in head.state])}\n")
     if head.regs is not None:
-        lines.append(_line("regs: ", [_Seq([[str(x)] for x in head.regs])], 0))
+        lines.append(f"regs:{_flat(head.regs)}\n")
     return lines
 
 
 def _template(key: str, body) -> list:
     if isinstance(body, Code):
-        return [f"  {key}: |\n"] + [f"    {_code.line(s)}\n" for s in body.statements]
-    return [_line(f"  {key}: ", _binding(body, "block"), 2)]
+        return [f" {key}:|\n"] + [f"\t{_code.line(s)}\n" for s in body.statements]
+    return [f" {key}:{_binding(body, 'block')}\n"]
 
 
 def _section(section: Section) -> list:
     lines = [f"{section.kind}:\n"]
     for name, value in section.records:
-        parts = [_events(value)] if section.kind == "phrase" else _binding(value, "block")
-        lines.append(_line(f"  {name}: ", parts, 2))
+        text = _events(value) if section.kind == "phrase" else _binding(value, "block")
+        lines.append(f" {name}:{text}\n")
     return lines
 
 
@@ -839,11 +788,11 @@ def printed(doc: Document) -> str:
 
 
 def _lines(doc: Document) -> list:
-    """The canonical lines of ``doc``, each a block line with its wraps."""
+    """The canonical lines of ``doc``."""
     lines = _header(doc.header)
     if doc.tables:
         lines.append("tables:\n")
-        lines += [_line(f"  {k}: ", [_Seq([[str(x)] for x in v])], 2) for k, v in doc.tables]
+        lines += [f" {k}:{_flat(tuple(v))}\n" for k, v in doc.tables]
     if doc.mods:
         lines.append("mod:\n")
         for key, body in doc.mods:
@@ -851,11 +800,10 @@ def _lines(doc: Document) -> list:
     for section in doc.defs:
         lines += _section(section)
     if doc.init is not None:
-        lines.append(_line("init: ", [_events(doc.init)], 0))
+        lines.append(f"init:{_events(doc.init, phrase=False)}\n")
     lines.append("song:\n")
-    for row in doc.rows:
-        lines.append(_line("  - play: ", [_Seq([_play(p) for p in row.play])], 4))
-    lines.append("  - end\n" if doc.loop is None else f"  - {{loop: {doc.loop}}}\n")
+    lines += [f" - play:{_seq(_play(p) for p in row.play)}\n" for row in doc.rows]
+    lines.append(" - end\n" if doc.loop is None else f" - {{loop:{doc.loop}}}\n")
     return lines
 
 

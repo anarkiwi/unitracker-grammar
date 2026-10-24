@@ -5,7 +5,7 @@ import ast
 import pytest
 from lark import Tree
 
-from unitracker_grammar import frequency, parse, parser
+from unitracker_grammar import frequency, parser
 from unitracker_grammar.expr import (
     ExpressionError,
     Nodes,
@@ -29,7 +29,7 @@ def values(fn) -> list:
 
 
 def test_an_expression_compiles_to_floored_python_integers():
-    f = compile_expr("(v >= 3)*(F(N) % 7) - abs(-phi) + max(W[2], 1) + min(v, -3)", NS)
+    f = compile_expr("(v >= 3)*(F(N) % 7) - abs(-phi) + max(W[2],1) + min(v,-3)", NS)
     assert f(3, 2, 57) == frequency(57) % 7 - 2 + 7 - 3
     assert f(0, 0, 0) == 7 - 3
     floor = compile_expr("phi // 30 - v // 4", {"_T": {}})
@@ -44,11 +44,11 @@ def test_a_written_value_is_an_integer_literal_as_an_int():
 @pytest.mark.parametrize(
     "text, one",
     [
-        ("1024 + 16*min(3, phi)", "16*min(3, phi) + 1024"),
+        ("1024 + 16*min(3,phi)", "16*min(3,phi) + 1024"),
         ("v + v + 2*3", "2*v + 6"),
         ("4*(v + 1) - 4", "4*v"),
         ("(phi + 1)*(v - 2)", "(phi + 1)*(v - 2)"),
-        ("max(v, 2) + min(phi, 1)", "max(2, v) + min(1, phi)"),
+        ("max(v,2) + min(phi,1)", "max(2,v) + min(1,phi)"),
         ("(v - 3) % 256 + v // 4", "(v - 3) % 256 + v // 4"),
         ("-(v % 8) + 2*(phi // 3)", "2*(phi // 3) - v % 8"),
         ("v % (phi + 1) - v % 3", "v % (phi + 1) - v % 3"),
@@ -116,10 +116,10 @@ def test_a_nonzero_literal_divisor_is_not_guarded():
 
 def _expressions(*texts: str) -> list:
     """The ``expr`` trees of a document whose expressions are ``texts``."""
-    mods = "".join(f"  e{k}(): {t}\n" for k, t in enumerate(texts))
+    mods = "".join(f" e{k}():{t}\n" for k, t in enumerate(texts))
     text = (
-        "unitracker: 2.1\nmeta: {title: T, author: A}\ntables:\n  W: [5, 6, 7]\n"
-        f"mod:\n{mods}song:\n  - play: [[C4, -*3]]\n  - end\n"
+        "unitracker:2.2\nmeta:{title:T,author:A}\ntables:\n W:[5,6,7]\n"
+        f"mod:\n{mods}song:\n - play:[[C4,-*3]]\n - end\n"
     )
     (section,) = parser().parse(text).find_data("def_mod")
     return [c for c in section.children if isinstance(c, Tree)]
@@ -129,7 +129,7 @@ FORMS = [
     "v + 2*phi - N",
     "F(N + 12) - F(N)",
     "W[phi % 3]*abs(v - 64)",
-    "min(v, 100) + max(phi, 4) // 2",
+    "min(v,100) + max(phi,4) // 2",
     "(v < 3) + (phi >= 2)*(N != 0) + (v == N) - (v <= 1) + (phi > 4)",
     "(v + 1)*(phi - 1) % 7",
     "-(v + 1) + -v",
@@ -151,17 +151,6 @@ def test_a_minus_before_a_literal_is_a_negative_literal():
 
 
 @pytest.mark.noncanonical
-def test_an_expression_wrapped_over_lines_is_one_node():
-    """The grammar admits a line wrap wherever a flow space may stand, beyond the one text
-    printed writes."""
-    text = (
-        "unitracker: 2.1\nmeta: {title: T, author: A}\nins:\n  i1: {freq: 'v\n    + min(phi, 2)'}\n"
-        "song:\n  - play: [[C4.i1]]\n  - end\n"
-    )
-    (node,) = (Nodes().transform(t) for t in parse(text).find_data("fexpr"))
-    assert printed(node) == "v + min(2, phi)"
-
-
 def test_a_table_reads_zero_outside_its_values():
     w = indexed([5, 6, 7])
     assert [w(k) for k in range(-1, 4)] == [0, 5, 6, 7, 0]
@@ -184,10 +173,10 @@ def test_n_is_the_event_note_a_fourth_argument_0_when_left_out():
 def test_a_template_s_parameters_bind_to_integers():
     """A template reads lowercase parameters, not the names of its calls and tables; binding
     every one of them, and no other, closes it, and an unbound one does not compile."""
-    node = tree("W[o + min(phi, a)]*v + abs(a - n) + N")
+    node = tree("W[o + min(phi,a)]*v + abs(a - n) + N")
     assert params(node) == {"o", "a"}
     closed = bind(node, {"o": 1, "a": 2})
-    assert printed(closed) == "N + abs(-n + 2) + v*W[min(2, phi) + 1]"
+    assert printed(closed) == "N + abs(-n + 2) + v*W[min(2,phi) + 1]"
     assert compile_expr(closed, NS)(3, 0, 7, 4) == 7 + 3 * 6 + 2
     assert params(node) == {"o", "a"} and printed(bind(tree("v + 1"), {})) == "v + 1"
     for bag in ({"o": 1}, {"o": 1, "a": 2, "b": 3}):
