@@ -163,12 +163,12 @@ doc = replace(doc, loop=None)                                # edits are datacla
 | `Document(header, tables, mods, init, rows, loop)` | `tables` `{name: ints}`; `mods` the top-level templates `(signature, Expr \| Code)`; `init` events or None; `loop` the row it loops to, None for `end` |
 | `Header(version, meta, clock, voices, tempo, hold, slots, order, state)` | each line, None where not written; `meta` texts as written (`"'A, B'"` quoted); `slots` `{cell: [Slot]}`, `state` `{cell: [(name, size)]}`; `slot(cell)` its Slots |
 | `Slot(name, mod, hold, reset)` | a slot's default binding and its events (`"note-1"`, `"row.freq"`) |
-| `SongRow(play, defs)` | play entries (`Play(phrase, transpose)`, `"~"`, `"end"`; a phrase is a name or inline events) and `{kind: [(name, value)]}` (`Section`s) |
+| `SongRow(play, defs)` | play entries (`Play(phrase, transpose)`, `"~"`, `"end"`; a phrase is a name or inline events) and `{kind: [(name, value)]}` (`Section`s); a template's name is its `signature` (`arp(a, b)`), its rows reading parameters as strings (`ad: "a"`, `note: "+a"`, `Call("walk", ("b",))`) |
 | `Instrument(fields)`, `Row(keys)` | `{key: value}`, `slot.key` for a slot's, kept in the grammar's order |
 | `Program(rows, loop)` | Rows (or dicts), then `end` (`loop` None) or `{loop: k}` |
 | `Event(note, ins, commands, keep_pw, keep_filter, steps)` | `ins` a name or an Instrument; commands `{key: value}`, `("set", (name, v))` per `!set`, `("legato", True)`, `("filter", "none")`; `steps` the `*k` |
 | `Expr(text)`, `Call(name, args)`, `Code(statements)` | an expression, a call, a routine (an `asm{...}` body where it binds) |
-| `Run(kind, program)`, `Bound(expr, bag)`, `Shape(name, bag)` | an inline program in `run:`; 1.22's template with its bag and an instrument's `mod:` shape |
+| `Run(kind, program)`, `Bound(expr, bag)`, `Shape(name, bag)` | a program after its kind in `run:` (inline, or a template's Call: `ctrl:arp(7,4)`); 1.22's template with its bag and an instrument's `mod:` shape |
 | `Signed` | an int written with its sign: `note: +0`, a transpose, `!freq:-3` |
 
 A leaf is otherwise an `int` or a `str` as written (a name, a note, `none`, `hold`, `129^8`, `+ 3`).

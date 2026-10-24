@@ -86,10 +86,19 @@ def built() -> Document:
         Event("on", None, {"run": Run("ctrl", Program([{"ctrl": 64}])), "b.pw": Call("ptab", ())}),
         Event("E1", None, {"freq": 256, "mode": 16, "vol": 15, "ad": 1, "sr": 2, "tempo": 8}),
         Event("-", None, {"run": NONE, "cut": NONE, "pw": "x1"}),
+        Event("C4", Instrument({"ctrl": Call("arp", (7, 4)), "restart": Call("hr", (2,))})),
+        Event("-", None, {"run": Call("arp", (3, 4))}),
     ]
     defs = {
         "ins": [("i1", ins)],
-        "ctrl": [("c1", ctrl)],
+        "ctrl": [
+            ("c1", ctrl),
+            (
+                signature("arp", ["a", "b"]),
+                Program([{"ctrl": 65, "note": "+a", "ad": "b"}, {"pw": Call("walk", ("b",))}]),
+            ),
+            ("c2", Program([{"run": Run("ctrl", Call("arp", (7, Signed(-4))))}])),
+        ],
         "pw": [("pw1", Expr("95*φ + 296")), ("pw2", Bound(Expr("walk"), (("s", 3),)))],
         "restart": [("r1", Program([{"hold": 2, "gate": 0, "ad": 15}, {"ctrl": 9}]))],
         "filter": [("f1", 1024)],
@@ -123,6 +132,8 @@ def test_a_built_document_prints_its_canonical_text_and_reads_back_equal():
     assert printed(read(text)) == text
     assert "        c1: [{ctrl: 65, note: +0, tick.freq: vib(3), freq: none}," in text
     assert "!pw:'v + 40'!filter:none!set step +4" in text
+    assert "        arp(a, b): [{ctrl: 65, note: +a, ad: b}, {pw: walk(b)}, end]\n" in text
+    assert "c2: [{run: ctrl:arp(7,-4)}, end]" in text and "-!run:arp(3,4)" in text
     assert (
         "slots: {freq: {wave: {mod: note(), reset: [row.note]}, tick: {hold: [note-1, row]}}"
         in text

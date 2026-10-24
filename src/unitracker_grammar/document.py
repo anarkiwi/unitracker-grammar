@@ -108,10 +108,11 @@ class Shape(NamedTuple):
 
 
 class Run(NamedTuple):
-    """An inline program after its kind, in a ``run:`` or ``!run:``: ``pw[{pw: 5}, end]``."""
+    """A program after its kind in a ``run:`` or ``!run:``: inline, ``pw[{pw: 5}, end]``, or
+    a template's Call, ``ctrl:arp(7,4)``."""
 
     kind: str
-    program: "Program"
+    program: object
 
 
 def _pairs(value) -> tuple:
@@ -346,11 +347,16 @@ def _leaf(token: Token):
     if token.type == "SIGNED":
         return Signed(token)
     if token.type == "CALL":
-        name, args = _code.call(token).name, token[token.index("(") + 1 : -1]
-        return Call(
-            name, tuple(Signed(a) if a[0] in "+-" else int(a) for a in args.split(",") if a)
-        )
+        name, args = _code.call(token).name, token[token.index("(") + 1 : -1].split(",")
+        return Call(name, tuple(_argument(a) for a in args if a))
     return _WRAP.sub(" ", str(token))
+
+
+def _argument(text: str):
+    """A call's argument: an int, a Signed where written with its sign, or a parameter."""
+    if text[0].isalpha():
+        return text
+    return Signed(text) if text[0] in "+-" else int(text)
 
 
 def _value(value):
@@ -515,7 +521,7 @@ class _ToModel(Transformer):
     @staticmethod
     def section(children):
         kind = {"NAME": "mod", "SIGNATURE": "mod", "INS": "ins"}.get(
-            children[0].type, children[0].type.lower()
+            children[0].type, children[0].type.lower().removesuffix("_sig")
         )
         records = []
         for c in children:
@@ -590,7 +596,9 @@ class _ToModel(Transformer):
 
     @staticmethod
     def program_name(children):
-        return str(children[0])
+        if len(children) == 2:
+            return Run(str(children[0])[:-1], _leaf(children[1]))
+        return _leaf(children[0])
 
     @staticmethod
     def run_program(children):
@@ -784,6 +792,8 @@ def _binding(value, where: str = "flow") -> list:
         return [*_binding(value.expr, where), _HARD, _bag(value.bag)]
     if isinstance(value, Shape):
         return [value.name] + ([" ", _bag(value.bag)] if value.bag else [])
+    if isinstance(value, Run) and isinstance(value.program, Call):
+        return [f"{value.kind}:{value.program}"]
     if isinstance(value, Run):
         return [value.kind, _program(value.program)]
     if isinstance(value, Instrument):
