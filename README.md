@@ -12,7 +12,9 @@ cell, the modulator slots that fire in order, each with its default binding and 
 events it holds and resets on (`slots: {freq: {wave: {mod: note, reset: [row.note]}, tick:
 {hold: [step-1, row]}}}`); its `mod` records are templates over named parameters and its `x`
 records instances (`x1: porta {s: 32}`); a `slot.` prefix on a cell's row key, instrument field
-or command (`tick.freq: x3`, `!tick.freq:x3`) names the slot it binds or stops. Format 1.21's
+or command (`tick.freq: x3`, `!tick.freq:x3`) names the slot it binds or stops; its `order`
+line names the phases of a tick in the order they run
+(`order: [events, ctrl, pulse, filter, freq, pw, cut, read]`). Format 1.21's
 `hold` line names, per cell, the events its modulators hold on (unitracker-player's
 [semantics](https://github.com/anarkiwi/unitracker-player/blob/main/docs/semantics.md)).
 
