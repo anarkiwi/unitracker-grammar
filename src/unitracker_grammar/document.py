@@ -25,6 +25,7 @@ __all__ = [
     "WIDTH",
     "Call",
     "Code",
+    "Def",
     "Document",
     "Event",
     "Expr",
@@ -39,10 +40,12 @@ __all__ = [
     "Slot",
     "SongRow",
     "base",
+    "first_use",
     "printed",
     "read",
     "replace",
     "signature",
+    "top_level",
 ]
 
 VERSION, WIDTH = "2.1", 100
@@ -96,6 +99,17 @@ class Run(NamedTuple):
 
     kind: str
     program: object
+
+
+class Def(NamedTuple):
+    """A definition at its first reference: its name (a template's signature) and value, and
+    for a template the arguments of its call there (None for a named definition): ``i3={ad:
+    9}`` is ``Def("i3", Instrument(...))``, ``vib(c)=asm{...}(4)`` ``Def("vib(c)", Code(...),
+    (4,))``; a program template's body is a Program, a Run where a ``run:`` starts it."""
+
+    name: str
+    value: object
+    args: tuple | None = None
 
 
 def _pairs(value) -> tuple:
@@ -516,6 +530,13 @@ class _ToModel(Transformer):
         return Play(phrase, Signed(children[1]) if len(children) > 1 else None)
 
     @staticmethod
+    def use(children):
+        args = None
+        if len(children) > 2:
+            args = tuple(_argument(a) for a in children[2][1:-1].split(",") if a)
+        return Def(str(children[0])[:-1], _value(children[1]), args)
+
+    @staticmethod
     def instrument(children):
         return Instrument(children[0] if children else ())
 
@@ -554,7 +575,7 @@ class _ToModel(Transformer):
     @staticmethod
     def event(children):
         note, rest = str(children[0]), list(children[1:])
-        ins = rest.pop(0) if isinstance(rest[0], (Instrument, Token)) else None
+        ins = rest.pop(0) if isinstance(rest[0], (Instrument, Token, Def)) else None
         ins = str(ins) if isinstance(ins, Token) else ins
         steps = int(rest[3]) if len(rest) > 3 else None
         return Event(note, ins, tuple(rest[0]), rest[1], rest[2], steps)
@@ -588,6 +609,7 @@ for _name, _method in {
     **{f"slot_{k}": _link(k, normal=_token) for k in ("mod", "hold", "reset")},
     **{f"state_{k}": _link(k) for k in CELLS},
     **{f"def_{k}": _definitions(k) for k in KINDS},
+    **{f"use_{k}": _ToModel.__dict__["use"] for k in KINDS + ("template",)},
 }.items():
     setattr(_ToModel, _name, _method)
 
@@ -688,6 +710,8 @@ def _binding(value, where: str = "flow") -> list:
     """The parts of a binding or a record's value, ``where`` ``flow``, ``block`` or ``cmd``
     (a command or a slot's default, whose expressions are always quoted)."""
     # pylint: disable=too-many-return-statements
+    if isinstance(value, Def):
+        return _defined(value, where)
     if isinstance(value, Expr):
         quoted = where == "cmd" or where == "flow" and "," in value.text
         return [f"'{value.text}'" if quoted else value.text]
@@ -702,6 +726,17 @@ def _binding(value, where: str = "flow") -> list:
     return [_hard(str(value))]
 
 
+def _defined(value: Def, where: str) -> list:
+    """The parts of a definition at its first use."""
+    head = [_hard(f"{value.name}=")]
+    if value.args is None and _kind(value.name) == "phrase":
+        return head + [_events(value.value)]
+    if value.args is None:
+        return head + _binding(value.value, where)
+    args = f"({','.join(map(str, value.args))})"
+    return head + _binding(value.value, "cmd" if isinstance(value.value, Expr) else where) + [args]
+
+
 def _program(program: Program) -> _Seq:
     rows = [[_map((k, _binding(v)) for k, v in row.keys)] for row in program.rows]
     loop = [_map([("loop", [str(program.loop)])])]
@@ -711,7 +746,7 @@ def _program(program: Program) -> _Seq:
 def _command(key: str, value) -> list:
     if key == "legato":
         return ["!legato"]
-    if isinstance(value, tuple) and not isinstance(value, (Call, Run)):
+    if isinstance(value, tuple) and not isinstance(value, (Call, Run, Def)):
         return [f"!{key}:{value[0]}/{value[1]}"]
     return [f"!{key}:", *_binding(value, "cmd")]
 
@@ -733,8 +768,11 @@ def _events(events) -> _Seq:
 def _play(entry) -> list:
     if isinstance(entry, str):
         return [entry]
-    head = entry.phrase if isinstance(entry.phrase, str) else _events(entry.phrase)
-    return [head] + ([] if entry.transpose is None else [str(Signed(entry.transpose))])
+    if isinstance(entry.phrase, (str, Def)):
+        head = _binding(entry.phrase)
+    else:
+        head = [_events(entry.phrase)]
+    return head + ([] if entry.transpose is None else [str(Signed(entry.transpose))])
 
 
 def _flat(value) -> str:
@@ -819,3 +857,143 @@ def _lines(doc: Document) -> list:
         lines.append(_line("  - play: ", [_Seq([_play(p) for p in row.play])], 4))
     lines.append("  - end\n" if doc.loop is None else f"  - {{loop: {doc.loop}}}\n")
     return lines
+
+
+# ---- definitions at their first use -----------------------------------------------------
+
+_NAMED = re.compile(r"(?:pw|[icfrp])\d+")
+_PREFIX = {"i": "ins", "c": "ctrl", "pw": "pw", "f": "filter", "r": "restart", "p": "phrase"}
+_REFERENCES = frozenset({"ins", "ctrl", "pw", "filter", "restart", "run", "phrase"})
+
+
+def _kind(name: str) -> str:
+    """The section of a named definition, by its name's prefix."""
+    return _PREFIX[name.rstrip("0123456789")]
+
+
+def _walk(value, visit, site=None):
+    """``value`` with each reference (a definition's name where one stands, a Call) and each
+    Def replaced by ``visit(value, site)``, in reading order, ``site`` the key or kind it
+    stands under (``ins``, ``phrase``, a row key, an instrument field, a section's kind)."""
+    # pylint: disable=too-many-return-statements
+    if isinstance(value, (Call, Def)) or isinstance(value, str) and site in _REFERENCES:
+        if isinstance(value, str) and not _NAMED.fullmatch(value):
+            return value
+        return visit(value, site)
+    if isinstance(value, (Row, Instrument)):
+        attr = "keys" if isinstance(value, Row) else "fields"
+        pairs = tuple((k, _walk(v, visit, base(k))) for k, v in getattr(value, attr))
+        return replace(value, **{attr: pairs})
+    if isinstance(value, Program):
+        return replace(value, rows=tuple(_walk(r, visit, site) for r in value.rows))
+    if isinstance(value, Event):
+        ins = _walk(value.ins, visit, "ins")
+        commands = tuple((k, _walk(v, visit, base(k))) for k, v in value.commands)
+        return replace(value, ins=ins, commands=commands)
+    if isinstance(value, Play):
+        return replace(value, phrase=_walk(value.phrase, visit, "phrase"))
+    if isinstance(value, Run):
+        return Run(value.kind, _walk(value.program, visit, value.kind))
+    if isinstance(value, Slot):
+        return replace(value, mod=_walk(value.mod, visit, "mod"))
+    if isinstance(value, tuple):
+        return tuple(_walk(v, visit, site) for v in value)
+    return value
+
+
+def _order(doc: Document, visit) -> Document:
+    """``doc`` walked in reading order: its slots' defaults, templates, sections, init and rows."""
+    head = doc.header
+    slots = head.slots and tuple((c, _walk(s, visit, "mod")) for c, s in head.slots)
+    header = replace(head, slots=slots)
+    mods = tuple((k, _walk(v, visit, "mod")) for k, v in doc.mods)
+    defs = tuple(
+        replace(s, records=tuple((n, _walk(v, visit, s.kind)) for n, v in s.records))
+        for s in doc.defs
+    )
+    init = doc.init and _walk(doc.init, visit)
+    rows = tuple(replace(r, play=_walk(r.play, visit)) for r in doc.rows)
+    return replace(doc, header=header, mods=mods, defs=defs, init=init, rows=rows)
+
+
+def top_level(doc: Document) -> Document:
+    """``doc`` with each definition at its first use moved to its section (a template's to the
+    templates, a program template's to its kind's), each in reading order after the
+    section's records, and the use its reference."""
+    mods, records = [], {}
+
+    def visit(value, site):
+        if not isinstance(value, Def):
+            return value
+        body = _walk(value.value, visit, site)
+        if value.args is None:
+            records.setdefault(_kind(value.name), []).append((value.name, body))
+            return value.name
+        if isinstance(body, (Code, Expr)):
+            mods.append((value.name, body))
+        else:
+            kind, body = (body.kind, body.program) if isinstance(body, Run) else (site, body)
+            records.setdefault(kind, []).append((value.name, body))
+        return Call(_code.signature(value.name)[0], value.args)
+
+    doc = _order(doc, visit)
+    for section in doc.defs:
+        records[section.kind] = list(section.records) + records.get(section.kind, [])
+    defs = tuple(Section(k, records[k]) for k in KINDS if records.get(k))
+    return replace(doc, mods=doc.mods + tuple(mods), defs=defs)
+
+
+def _cell(kind: str, body):
+    """A program template's body as a program: a pulse or filter binding the one-row program
+    binding the cell."""
+    return body if isinstance(body, Program) else Program([{_CELL[kind]: body}])
+
+
+def first_use(doc: Document) -> Document:
+    """``doc`` with each definition its song reaches (from the slots, the init row and the
+    rows) moved to its first reference in reading order; the rest, and what only they reach,
+    stay in their sections. The inverse of :func:`top_level` up to records' order."""
+    doc = top_level(doc)
+    found = {}
+    for kind, key, value in [("mod", k, v) for k, v in doc.mods] + [
+        (s.kind, k, v) for s in doc.defs for k, v in s.records
+    ]:
+        if _named(key) in found:
+            raise CanonicalError(f"{_named(key)} is defined twice")
+        found[_named(key)] = (kind, key, value)
+    reached, todo = set(), [doc.header.slots, doc.init, tuple(r.play for r in doc.rows)]
+
+    def reach(value, _site):
+        name = value.name if isinstance(value, Call) else value
+        if name in found and name not in reached:
+            reached.add(name)
+            todo.append(found[name][2])
+        return value
+
+    while todo:
+        _walk(todo.pop(), reach, "run")
+    placed = set()
+
+    def visit(value, site):
+        name = value.name if isinstance(value, Call) else value
+        if name not in reached or name in placed:
+            return value
+        placed.add(name)
+        kind, key, body = found[name]
+        body = _walk(body, visit, kind)
+        if not isinstance(value, Call):
+            return Def(key, body)
+        if kind != "mod":
+            body = Run(kind, _cell(kind, body)) if site == "run" else _cell(kind, body)
+        return Def(key, body, value.args)
+
+    kept = tuple((k, v) for k, v in doc.mods if _code.signature(k)[0] not in reached)
+    defs = tuple(
+        replace(s, records=tuple((k, v) for k, v in s.records if _named(k) not in reached))
+        for s in doc.defs
+    )
+    return _order(replace(doc, mods=kept, defs=tuple(s for s in defs if s.records)), visit)
+
+
+def _named(key: str) -> str:
+    return _code.signature(key)[0] if "(" in key else key

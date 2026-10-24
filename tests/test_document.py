@@ -15,6 +15,7 @@ from unitracker_grammar.document import (
     RESET,
     Call,
     Code,
+    Def,
     Document,
     Event,
     Expr,
@@ -30,10 +31,12 @@ from unitracker_grammar.document import (
     Slot,
     SongRow,
     base,
+    first_use,
     printed,
     read,
     replace,
     signature,
+    top_level,
 )
 
 VIB = Code.of("lda t\nbmi up\nclc\nup:\nadc #c\nsta t\nlda v\nsta v+1,x\nrts")
@@ -397,3 +400,61 @@ def test_a_pulse_or_filter_record_of_one_binding_is_that_binding():
     with pytest.raises(CanonicalError, match="written as the binding"):
         read(text.replace("pw1: v + 1", "pw1: [{pw: v + 1}, end]"))
     assert read(text.replace("pw1: v + 1", "pw1: [{pw: none}, end]"))
+
+
+FIRST = """unitracker: 2.1
+meta: {title: T}
+slots: {freq: {base: {mod: note()='F(N)'()}, tick: {}}}
+phrase:
+  p1: [C4.i3={ad: 9, ctrl: c1=[{ctrl: 65}, end], pw: pw2=v + 3}!pw:w(s)='v + s'(2)!tick.freq:vib(l)=asm{lda #l; sta v; rts}(4),
+    D4.i3!run:arp(a, b)=ctrl[{ctrl: a, note: +b}, end](65,4), -!run:c1]
+song:
+  - play: [p1, p2=[C4.i3]+2, [E4.i4={ctrl: hr(h)=[{hold: h}, end](2), pw: pt(b)=[{pw: b}, end](9)}]]
+  - end
+"""
+
+
+def test_a_definition_stands_at_its_first_use_and_moves_to_its_section():
+    """``NAME=`` and a template's ``SIGNATURE=`` before its value where it is first referenced,
+    a template's call's arguments after its body; :func:`top_level` moves each to its section,
+    :func:`first_use` back, the records reached from the song in reading order."""
+    doc = read(FIRST)
+    assert printed(doc) == FIRST
+    assert doc.rows[0].play[1].phrase == Def("p2", (Event("C4", "i3"),))
+    ins = doc.records("phrase")["p1"][0].ins
+    assert ins.name == "i3" and ins.value.get("ctrl") == Def("c1", Program([{"ctrl": 65}]))
+    top = top_level(doc)
+    assert top.records("pw") == {"pw2": Expr("v + 3"), "pt(b)": Expr("b")}
+    assert top.records("ctrl")["arp(a, b)"] == Program([{"ctrl": "a", "note": "+b"}])
+    assert [k for k, _ in top.mods] == ["note()", "w(s)", "vib(l)"]
+    assert top.records("ins")["i4"].get("pw") == Call("pt", (9,))
+    text = printed(top)
+    assert "=" not in text.split("song:")[1] and read(text) == top
+    again = first_use(top)
+    assert top_level(again) == top_level(read(printed(again)))
+    assert printed(again).count("=") == FIRST.count("=") + 1  # p1 too
+
+
+def test_first_use_keeps_what_the_song_does_not_reach_in_its_section():
+    doc = first_use(built())
+    assert doc.records("restart") == {"r1": built().records("restart")["r1"]}
+    assert set(doc.records("pw")) == {"pw2"} and set(doc.records("filter")) == {"f1", "f2"}
+    assert read(printed(doc)) == doc
+    with pytest.raises(CanonicalError, match="twice"):
+        first_use(replace(built(), defs=built().defs + (Section("phrase", [("p1", ())]),)))
+
+
+@pytest.mark.parametrize(
+    "old, new, match",
+    [
+        ("-!run:c1]", "-!run:c1, -.i3={ad: 1}]", "i3 is defined twice"),
+        ("[C4.i3={ad: 9", "[C4.i3, C4.i3={ad: 9", "i3 is referenced before its definition"),
+        ("phrase:\n", "ctrl:\n  c1: [end]\nphrase:\n", "c1 is defined twice"),
+        ("[C4.i3={ad: 9", "[C4!pw:w(1), C4.i3={ad: 9", "w is referenced before its definition"),
+        ("-!run:c1]", "-!pw:q(a)=[{pw: a}, end](1)]", "a program template stands"),
+    ],
+)
+def test_a_first_use_definition_is_one_and_follows_no_reference(old, new, match):
+    assert old in FIRST
+    with pytest.raises(CanonicalError, match=match):
+        read(FIRST.replace(old, new))

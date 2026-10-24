@@ -39,7 +39,23 @@ section giving its kind. Any definition may also stand inline at its use: a prog
 kind in `run:` and `!run:` (`run: pw[{pw: 5}, end]`), an instrument after an event's note
 (`C4.{ad: 9, sr: 240}`), a phrase with its transpose in a play entry (`play: [[C4, -*3]+2, ~]`)
 and, wherever a cell is bound, an anonymous code body (`asm{lda v; up:; adc #1; sta v; bne up;
-rts}`); a command and a slot's default also bind a quoted expression (`!pw:'v + 40'`). A
+rts}`); a command and a slot's default also bind a quoted expression (`!pw:'v + 40'`).
+
+A named definition may also be written at its first reference instead of in its section, its
+name and `=` before its value, and is referenced by name after: an instrument
+`C4.i3={ad: 9, ctrl: c1=[{ctrl: 65}, end]}` then `D4.i3`, a program `run: c3=[...]`,
+`restart: r2=[...]`, `pw: pw2=v + 3`, a phrase `p3=[C4.i3, -*3]+2` in a play entry; a template
+its signature and `=` before its body, then its call's arguments: `!tick.freq:vib(c)=asm{...}(4)`,
+`!pw:walk(s)='v + s'(2)` (an expression body always quoted), a program template
+`ctrl: arp(a, b)=[{ctrl: 65, note: +a}, end](7,4)`, after its kind in a run
+(`!run:arp(a, b)=ctrl[...](7,4)`), then `vib(3)`, `arp(0,7)`. It is the same definition as in
+its section; a section's records are defined throughout, one at its first use from there on: a
+reference before it, and a name defined twice, are refused. `document.top_level(doc)` moves every
+such definition to its section and `document.first_use(doc)` every definition the song reaches
+(from the slots, `init` and the rows, in reading order) to its first reference; the model keeps
+each where it is written (`Def(name, value, args)` at a use), so `printed` writes either.
+
+A
 modulator's and a program's signature take the same parameter names: lowercase names but `v`,
 `phi`, `n`, `nn`, `ne`, `none`, `hold`, `reset` and a record's name (`c1`, `pw2`). A table is
 named by a capitalised name but `F` and `N`. A row's control mask is its own key (`{ctrl: 65,
@@ -182,6 +198,7 @@ doc = replace(doc, loop=None)                                # edits are datacla
 | `Event(note, ins, commands, keep_pw, keep_filter, steps)` | `ins` a name or an Instrument; commands `{key: value}`, `("legato", True)`; `steps` the `*k` |
 | `Expr(text)`, `Call(name, args)`, `Code(statements)` | an expression, a call, a routine (an `asm{...}` body where it binds) |
 | `Run(kind, program)` | an inline program after its kind in `run:` or `!run:` |
+| `Def(name, value, args)` | a definition at its first use: `name` (a template's signature), its value, a template's call's arguments (None for a named one) |
 | `Signed` | an int written with its sign: `note: +0`, a transpose, `!freq:-3` |
 
 A leaf is otherwise an `int` or a `str` as written (a name, a note, `none`, `hold`).

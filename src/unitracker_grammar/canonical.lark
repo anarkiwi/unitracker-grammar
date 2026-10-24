@@ -8,7 +8,8 @@
 // filter: and phrase:; a song row holds only its play entries. A program record may be a
 // template keyed by a SIGNATURE whose rows read its parameters (PARAM, REL_PARAM, a CALL's
 // names); a CALL binds a template wherever a cell is bound or a program's name stands.
-// A definition may stand inline at its use: a program after its kind in run: and !run:
+// A named definition may stand at its first reference instead of in its section, NAME= or a
+// template's SIGNATURE= before its value (use_*). A definition may stand inline at its use: a program after its kind in run: and !run:
 // (ctrl[...]), an instrument after an event's note (C4.{ad: 9}), a phrase in a play entry
 // ([C4, -]+2), and, where a cell is bound, a code body on one line (asm{lda v; sta v+1; rts})
 // or, in a command or a slot's default, a quoted expression ('v + 40').
@@ -49,7 +50,7 @@ tempo: "tempo: " (INT | "[" INT ", " INT "]")
 slots: "slots: " _LC slot_cell (_SEP slot_cell)* "}"
 slot_cell: CELL ": " _LC slot (_SEP slot)* "}"
 slot: NAME ": " _LC slot_mod? "}"
-slot_mod: "mod: " (CALL | asm | qexpr) (_SEP slot_hold)? | slot_hold
+slot_mod: "mod: " (CALL | asm | qexpr | use_template) (_SEP slot_hold)? | slot_hold
 slot_hold: "hold: " events (_SEP slot_reset)? | slot_reset
 slot_reset: "reset: " events
 events: _LB HOLD_EVENT (_SEP HOLD_EVENT)* "]"
@@ -91,7 +92,7 @@ init: "init: " _LB event (_SEP event)* "]"
 row: "  - play: " plays _NL
 ending: "  - end" _NL | "  - {loop: " INT "}" _NL
 plays: _LB play (_SEP play)* "]"
-play: (PHRASE | phrase) SIGNED? | CONT | END
+play: (PHRASE | phrase | use_phrase) SIGNED? | CONT | END
 
 // ---- instruments and programs: each key chain the keys from one on, in the grammar's order,
 // a cell's keys repeating in the order they apply ----------------------------------------
@@ -99,16 +100,16 @@ play: (PHRASE | phrase) SIGNED? | CONT | END
 instrument: _LC ins_ad "}"
 ins_ad: "ad: " INT (_SEP ins_sr)? | ins_sr
 ins_sr: "sr: " INT (_SEP ins_ctrl)? | ins_ctrl
-ins_ctrl: "ctrl: " (CTRL | CALL | program) (_SEP ins_pw)? | ins_pw
-ins_pw: SLOT? "pw: " (PW | NONE | modulation) (_SEP ins_pw)? | ins_filter
-ins_filter: SLOT? "filter: " (FILTER | NONE | modulation) (_SEP ins_filter)? | ins_freq
+ins_ctrl: "ctrl: " (CTRL | CALL | program | use_ctrl | use_template) (_SEP ins_pw)? | ins_pw
+ins_pw: SLOT? "pw: " (PW | NONE | modulation | use_pw) (_SEP ins_pw)? | ins_filter
+ins_filter: SLOT? "filter: " (FILTER | NONE | modulation | use_filter) (_SEP ins_filter)? | ins_freq
 ins_freq: SLOT? "freq: " (NONE | _binding) (_SEP ins_freq)? | ins_restart
-ins_restart: "restart: " (RESTART | CALL | program)
+ins_restart: "restart: " (RESTART | CALL | program | use_restart | use_template)
 
 // a program: its rows in the order they run, then its end or its loop
 program: _LB (row_ _SEP)* (END | _LC LOOP INT "}") "]"
 modulation: program | _binding
-_binding: CALL | asm | fexpr
+_binding: CALL | asm | fexpr | use_template
 _int: INT | PARAM
 
 row_: _LC "}" | _LC row_wait "}"
@@ -134,14 +135,14 @@ row_vol: "vol: " _int
 note_value: SIGNED | NOTE | REL_PARAM
 cell_value: _binding | NONE | HOLD | RESET
 // a program's name, or a call of a program template, whose section gives its kind
-_program_ref: CTRL | PW | FILTER | CALL
+_program_ref: CTRL | PW | FILTER | CALL | use_ctrl | use_pw | use_filter | use_template
 // an inline program after its kind
 run_program: PROGRAM_KIND program
 
 // ---- events: the commands a chain in the grammar's order ---------------------------------
 
 phrase: _LB event (_SEP event)* "]"
-event: NOTE_ATOM ("." (INS | instrument))? cmd_run keep_pw keep_filter ("*" INT)?
+event: NOTE_ATOM ("." (INS | instrument | use_ins))? cmd_run keep_pw keep_filter ("*" INT)?
 cmd_run: "!run:" (_program_ref | run_program | NONE) cmd_pw | cmd_pw
 cmd_pw: CMD_PW (INT | _command) cmd_pw | cmd_ad
 cmd_ad: "!ad:" INT cmd_sr | cmd_sr
@@ -156,9 +157,21 @@ cmd_tempo: "!tempo:" INT ("/" INT)? cmd_vtempo | cmd_vtempo
 cmd_vtempo: "!vtempo:" INT ("/" INT)? cmd_freq | cmd_freq
 cmd_freq: CMD_FREQ (SIGNED | INT | _command) cmd_freq | cmd_legato
 cmd_legato: LEGATO |
-_command: CALL | asm | qexpr | NONE | HOLD | RESET
+_command: CALL | asm | qexpr | use_template | NONE | HOLD | RESET
 keep_pw: KEEP_PW |
 keep_filter: KEEP_FILTER |
+
+// ---- definitions at their first use: a name and "=" before its value where it is first
+// referenced, a template's signature and "=" before its body, then its call's arguments; a
+// program template's body is a program, after its kind where a run starts it -------------
+
+use_ins: DEF_INS instrument
+use_restart: DEF_RESTART program
+use_ctrl: DEF_CTRL program
+use_pw: DEF_PW modulation
+use_filter: DEF_FILTER modulation
+use_phrase: DEF_PHRASE phrase
+use_template: DEF_SIG (asm | qexpr | program | run_program) ARGS
 
 // ---- expressions (unitracker_grammar.expr) -------------------------------------------------
 
@@ -225,6 +238,15 @@ TABLE_BYTE: /(?!N\.)[A-Z][A-Za-z]*\.(?:lo|hi)/
 SIGNATURE: /(?!(?:pw|[cfipr])\d+\()[a-z][a-z0-9_]*\(/ (_PARAM_NAME (", " _PARAM_NAME)*)? ")"
 // a call: its arguments integers or, in a program template's rows, its parameters
 CALL: /(?!(?:abs|min|max)\()[a-z][a-z0-9_]*\((?:(?:[+-]?(?:0|[1-9]\d*)|[a-z][a-z0-9_]*)(?:,(?:[+-]?(?:0|[1-9]\d*)|[a-z][a-z0-9_]*))*)?\)/
+DEF_INS.2: /i\d+=/
+DEF_RESTART.2: /r\d+=/
+DEF_CTRL.2: /c\d+=/
+DEF_PW.2: /pw\d+=/
+DEF_FILTER.2: /f\d+=/
+DEF_PHRASE.2: /p\d+=/
+DEF_SIG.2: SIGNATURE "="
+// a template call's arguments after its definition
+ARGS: /\((?:(?:[+-]?(?:0|[1-9]\d*)|[a-z][a-z0-9_]*)(?:,(?:[+-]?(?:0|[1-9]\d*)|[a-z][a-z0-9_]*))*)?\)/
 OFFSET: /\+[1-9]\d*/
 INDEX: ",x" | ",y"
 BYTE: "<" | ">"
