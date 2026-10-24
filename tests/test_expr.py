@@ -118,7 +118,7 @@ def _expressions(*texts: str) -> list:
     """The ``expr`` trees of a document whose expressions are ``texts``."""
     mods = "".join(f" e{k}():{t}\n" for k, t in enumerate(texts))
     text = (
-        "unitracker:2.2\nmeta:{title:T,author:A}\ntables:\n W:[5,6,7]\n"
+        "unitracker:2.3\nmeta:{title:T,author:A}\ntables:\n W:[5,6,7]\n"
         f"mod:\n{mods}song:\n - play:[[C4,-*3]]\n - end\n"
     )
     (section,) = parser().parse(text).find_data("def_mod")

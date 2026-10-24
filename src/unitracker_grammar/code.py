@@ -18,6 +18,8 @@ from lark import Lark, Token, Transformer, Tree, exceptions
 
 from unitracker_grammar import expr
 from unitracker_grammar.canonical import GRAMMAR, CanonicalError
+from unitracker_grammar.chords import CHORDS
+from unitracker_grammar.prelude import NAMES as PRELUDE
 
 SYMBOLS = ("v", "phi", "nn", "ne")
 REGISTERS = ("a", "x", "y")
@@ -326,6 +328,7 @@ _USES = {
     "use_pw": "pw",
     "use_filter": "filter",
     "use_phrase": "phrase",
+    "use_section": "section",
 }
 _SITES = {
     "ins_ctrl": "ctrl",
@@ -339,6 +342,8 @@ _SITES = {
 }
 _KEYS = {"DEF_SIG": "SIGNATURE", "DEF_INS": "INS", "DEF_RESTART": "RESTART", "DEF_CTRL": "CTRL"}
 _KEYS |= {"DEF_PW": "PW", "DEF_FILTER": "FILTER", "DEF_PHRASE": "PHRASE"}
+_KEYS |= {"DEF_SECTION": "SECTION"}
+_BODIES = {"asm": "mod", "fexpr": "mod", "instrument": "ins", "phrase": "phrase"}
 
 
 def first_uses(tree: Tree):
@@ -353,8 +358,8 @@ def first_uses(tree: Tree):
             key = Token.new_borrow_pos(_KEYS[key.type], key[:-1], key)
             if node.data in _USES:
                 kind = _USES[node.data]
-            elif body.data in ("asm", "fexpr"):
-                kind = "mod"
+            elif body.data in _BODIES:
+                kind = _BODIES[body.data]
             elif body.data == "run_program":
                 kind, body = str(body.children[0]), body.children[1]
             elif (kind := _SITES.get(parent if parent != "modulation" else grand)) is None:
@@ -370,8 +375,9 @@ def _name(token: Token) -> str:
     return token.partition("(")[0].rstrip("=")
 
 
-_REFS = frozenset({"INS", "RESTART", "CTRL", "PW", "FILTER", "PHRASE", "CALL"})
-_KINDS = ("mod", "restart", "ins", "ctrl", "pw", "filter", "phrase")
+_REFS = frozenset({"INS", "RESTART", "CTRL", "PW", "FILTER", "PHRASE", "CALL", "SECTION"})
+_REFS |= {"PHRASE_CALL"}
+_KINDS = ("mod", "restart", "ins", "ctrl", "pw", "filter", "phrase", "section")
 
 
 def _scope(tree: Tree, uses: list):
@@ -437,7 +443,9 @@ def _reads(node: Tree, out: list, skip=frozenset(), declared=None) -> list:
                 out.append(child[1:])
             elif child.type in ("CALL", "ARGS"):
                 out.extend(
-                    a for a in call(f"a{child}"[child.type == "CALL" :]).args if isinstance(a, str)
+                    a
+                    for a in call(f"a{child}"[child.type == "CALL" :]).args
+                    if isinstance(a, str) and (a not in CHORDS or a in (declared or ()))
                 )
         elif id(child) in skip:
             continue
@@ -467,13 +475,13 @@ def program_reads(body: Tree, declared=None, skip=frozenset()) -> tuple[str, ...
 
 
 def programs(tree: Tree) -> dict[str, tuple[str, tuple[str, ...]]]:
-    """``{name: (kind, parameters)}`` of a document parse tree's program templates, checked:
-    each declares what its rows read (:func:`program_reads`), a program keyed by its name reads
-    none, nothing outside a program's records reads one, and no two templates, of programs or
-    modulators, share a name."""
+    """``{name: (kind, parameters)}`` of a document parse tree's program and instrument
+    templates, checked: each declares what its rows (fields) read (:func:`program_reads`), a
+    record keyed by its name reads none, nothing outside a record reads one, and no two
+    templates, of programs, instruments or modulators, share a name."""
     out, bodies = {}, set()
     nested = {id(body) for _, key, body in first_uses(tree) if key.type == "SIGNATURE"}
-    for kind in PROGRAM_KINDS:
+    for kind in PROGRAM_KINDS + ("ins",):
         for key, body in _records(tree, kind):
             bodies.add(id(body))
             if key.type == "SIGNATURE":
@@ -571,4 +579,22 @@ def check_document(tree: Tree) -> Tree:
         for key, body in _records(tree, kind):
             if _long(kind, body):
                 raise CanonicalError(f"{key}: a program of one binding is written as the binding")
+    named |= phrases(tree).keys()
+    if clash := sorted(named & PRELUDE):
+        raise CodeError(f"{clash} name prelude templates, which a document does not define")
     return tree
+
+
+def phrases(tree: Tree) -> dict[str, tuple[str, ...]]:
+    """``{name: parameters}`` of a document parse tree's phrase templates, each declaring the
+    notes its events stand a parameter for; CodeError for a note's parameter outside one."""
+    out, bodies = {}, set()
+    for key, body in _records(tree, "phrase"):
+        if key.type == "SIGNATURE":
+            bodies.add(id(body))
+            used = dict.fromkeys(str(t) for t in body.scan_values(lambda v: v.type == "NOTE_PARAM"))
+            out[declare(key, used)[0]] = signature(key)[1]
+    for node, outside in _nodes(tree, bodies):
+        if outside and node.data == "event" and node.children[0].type == "NOTE_PARAM":
+            raise CodeError(f"{node.children[0]}: a note's parameter outside a phrase template")
+    return out

@@ -11,7 +11,7 @@ from typing import NamedTuple
 from lark import Token, Transformer, exceptions, v_args
 
 from unitracker_grammar import code as _code
-from unitracker_grammar.canonical import CanonicalError, parse
+from unitracker_grammar.canonical import CanonicalError, absolute, parse
 from unitracker_grammar.code import Call
 
 __all__ = [
@@ -29,8 +29,11 @@ __all__ = [
     "Document",
     "Event",
     "Expr",
+    "Group",
     "Header",
     "Instrument",
+    "Once",
+    "Part",
     "Play",
     "Program",
     "Row",
@@ -48,9 +51,9 @@ __all__ = [
     "top_level",
 ]
 
-VERSION = "2.2"
+VERSION = "2.3"
 NONE, HOLD, RESET, CONT, END = "none", "hold", "reset", "~", "end"
-KINDS = ("restart", "ins", "ctrl", "pw", "filter", "phrase")
+KINDS = ("restart", "ins", "ctrl", "pw", "filter", "phrase", "section")
 CELLS = ("freq", "pw", "cut")
 _INT = re.compile(r"\d+")
 _ROW_KEYS = (
@@ -97,6 +100,12 @@ class Run(NamedTuple):
 
     kind: str
     program: object
+
+
+class Once(NamedTuple):
+    """A binding that fires once, then leaves its slot unbound: ``snap()!``."""
+
+    value: object
 
 
 class Def(NamedTuple):
@@ -207,9 +216,31 @@ class Event(_Node):
 
 
 @dataclass(frozen=True)
+class Group(_Node):
+    """A group of a phrase's events or of song items: ``body`` played ``times`` (``[...]x2``),
+    or before each of ``endings`` in turn (a volta, ``[body|end1|end2]``)."""
+
+    body: tuple
+    times: int | None = None
+    endings: tuple = ()
+
+    def _normal(self):
+        _set(self, "endings", tuple(tuple(e) for e in self.endings))
+
+
+@dataclass(frozen=True)
+class Part(_Node):
+    """A song item playing a section (its name, or a Def at its first use) once or ``times``."""
+
+    section: object
+    times: int | None = None
+
+
+@dataclass(frozen=True)
 class Play(_Node):
-    """A play entry: a phrase (a name, or an inline phrase's events) and its transpose (None
-    where not written); the entries ``~`` and ``end`` are the strings CONT and END."""
+    """A play entry: a phrase (a name, an inline phrase's events, a Def or a phrase template's
+    Call of absolute notes) and its transpose (None where not written); the entries ``~`` and
+    ``end`` are the strings CONT and END."""
 
     phrase: str | tuple
     transpose: int | None = None
@@ -276,8 +307,9 @@ class Header(_Node):  # pylint: disable=too-many-instance-attributes
     """The header lines, each None (``meta`` empty) where not written; ``meta`` holds each
     text as written, plain or quoted, ``clock`` is ``(cycles_per_tick, clock_hz)`` or
     ``(cycles_per_tick, clock_hz, "floor")`` (a ``"round"`` third is dropped), ``tempo``
-    an int or ``(a, b)``, ``slots`` and ``state`` are ``(cell, ...)`` pairs and ``regs`` the 25
-    registers' values before tick 0."""
+    an int or ``(a, b)``, ``slots`` and ``state`` are ``(cell, ...)`` pairs, ``regs`` the 25
+    registers' values before tick 0, ``lag`` the output's ticks of lag and ``global_cells`` the
+    cells the song owns (``("cut",)``)."""
 
     meta: tuple = ()
     clock: tuple | None = None
@@ -287,6 +319,8 @@ class Header(_Node):  # pylint: disable=too-many-instance-attributes
     order: tuple | None = None
     state: tuple | None = None
     regs: tuple | None = None
+    lag: int | None = None
+    global_cells: tuple | None = None
 
     def _normal(self):
         if self.clock is not None:
@@ -294,8 +328,9 @@ class Header(_Node):  # pylint: disable=too-many-instance-attributes
             if not set(rounding) <= {"floor"}:
                 raise ValueError(f"clock: rounding {rounding} is not round or floor")
             _set(self, "clock", tuple(self.clock[:2]) + rounding)
-        if self.regs is not None:
-            _set(self, "regs", tuple(self.regs))
+        for name in ("regs", "global_cells"):
+            if getattr(self, name) is not None:
+                _set(self, name, tuple(getattr(self, name)))
         for name in ("slots", "state"):
             value = getattr(self, name)
             if value is not None:
@@ -310,8 +345,8 @@ class Header(_Node):  # pylint: disable=too-many-instance-attributes
 class Document(_Node):  # pylint: disable=too-many-instance-attributes
     """A whole document: its header, tables ``(name, values)``, templates ``(signature, Expr |
     Code)``, definitions (Sections in KINDS order, or ``{kind: records}``), init events (None
-    where not written), timeline rows and ending, ``loop`` the row it loops to (None for
-    ``end``)."""
+    where not written), song items (SongRows, Parts and Groups) and ending, ``loop`` the item it
+    loops to (None for ``end``)."""
 
     header: Header = field(default_factory=Header)
     tables: tuple = ()
@@ -324,7 +359,11 @@ class Document(_Node):  # pylint: disable=too-many-instance-attributes
     def _normal(self):
         _set(self, "tables", tuple((k, tuple(v)) for k, v in _pairs(self.tables)))
         _set(self, "defs", tuple(s if isinstance(s, Section) else Section(*s) for s in self.defs))
-        _set(self, "rows", tuple(r if isinstance(r, SongRow) else SongRow(r) for r in self.rows))
+        _set(
+            self,
+            "rows",
+            tuple(r if isinstance(r, (SongRow, Part, Group)) else SongRow(r) for r in self.rows),
+        )
 
     def records(self, kind: str) -> dict:
         """Every record of ``kind``, ``{name: value}``; ``mod`` the templates."""
@@ -350,17 +389,27 @@ def _leaf(token: Token):
         return int(token)
     if token.type == "SIGNED":
         return Signed(token)
-    if token.type == "CALL":
-        name, args = _code.call(token).name, token[token.index("(") + 1 : -1].split(",")
-        return Call(name, tuple(_argument(a) for a in args if a))
+    if token.type in ("CALL", "PHRASE_CALL"):
+        return Call(token.partition("(")[0], _arguments(token))
+    if token.type == "TIMES":
+        return int(token[1:])
     return str(token)
 
 
 def _argument(text: str):
-    """A call's argument: an int, a Signed where written with its sign, or a parameter."""
+    """A call's argument: an int, a Signed where written with its sign, or a name (a parameter
+    or a chord)."""
     if text[0].isalpha():
         return text
     return Signed(text) if text[0] in "+-" else int(text)
+
+
+def _arguments(text: str) -> tuple:
+    """The arguments of a call's ``(...)``: a phrase template's notes absolute (``C#4``)."""
+    args = [a for a in text[text.index("(") + 1 : -1].split(",") if a]
+    if args and args[0][0] in "ABCDEFGacdfg" and args[0][-1].isdigit():
+        return tuple(absolute(a) for a in args)
+    return tuple(_argument(a) for a in args)
 
 
 def _value(value):
@@ -426,7 +475,7 @@ class _ToModel(Transformer):
     def start(children):
         head, body = {}, {"rows": [], "defs": []}
         for c in children:
-            if isinstance(c, SongRow):
+            if isinstance(c, (SongRow, Part, Group)):
                 body["rows"].append(c)
             elif isinstance(c, Section):
                 body["defs"].append(c)
@@ -493,6 +542,14 @@ class _ToModel(Transformer):
         return ("regs", children[0])
 
     @staticmethod
+    def lag(children):
+        return ("lag", int(children[0]))
+
+    @staticmethod
+    def global_cells(children):
+        return ("global_cells", tuple(str(c) for c in children))
+
+    @staticmethod
     def tables(children):
         return ("tables", tuple(zip(map(str, children[::2]), children[1::2])))
 
@@ -509,8 +566,35 @@ class _ToModel(Transformer):
         return ("init", tuple(children))
 
     @staticmethod
+    def item(children):
+        return children[0]
+
+    @staticmethod
     def row(children):
         return SongRow(children[0])
+
+    @staticmethod
+    def part(children):
+        times = _leaf(children[1]) if len(children) > 1 else None
+        return Part(str(children[0]) if isinstance(children[0], Token) else children[0], times)
+
+    @staticmethod
+    def section(children):
+        return tuple(children)
+
+    items = body = section
+
+    @staticmethod
+    def group(children):
+        if isinstance(children[-1], Token):
+            return Group(children[0], _leaf(children[-1]))
+        return Group(children[0], None, tuple(children[1:]))
+
+    song_group = group
+
+    @staticmethod
+    def once(children):
+        return Once(_value(children[0]))
 
     @staticmethod
     def ending(children):
@@ -525,14 +609,12 @@ class _ToModel(Transformer):
         first = children[0]
         if isinstance(first, Token) and first.type in ("CONT", "END"):
             return str(first)
-        phrase = str(first) if isinstance(first, Token) else first
+        phrase = _leaf(first) if isinstance(first, Token) else first
         return Play(phrase, Signed(children[1]) if len(children) > 1 else None)
 
     @staticmethod
     def use(children):
-        args = None
-        if len(children) > 2:
-            args = tuple(_argument(a) for a in children[2][1:-1].split(",") if a)
+        args = _arguments(children[2]) if len(children) > 2 else None
         return Def(str(children[0])[:-1], _value(children[1]), args)
 
     @staticmethod
@@ -575,7 +657,7 @@ class _ToModel(Transformer):
     def event(children):
         note, rest = str(children[0]), list(children[1:])
         ins = rest.pop(0) if isinstance(rest[0], (Instrument, Token, Def)) else None
-        ins = str(ins) if isinstance(ins, Token) else ins
+        ins = _leaf(ins) if isinstance(ins, Token) else ins
         steps = int(rest[3]) if len(rest) > 3 else None
         return Event(note, ins, tuple(rest[0]), rest[1], rest[2], steps)
 
@@ -640,6 +722,8 @@ def _binding(value, where: str = "flow") -> str:
     # pylint: disable=too-many-return-statements
     if isinstance(value, Def):
         return _defined(value, where)
+    if isinstance(value, Once):
+        return _binding(value.value, "cmd") + "!"
     if isinstance(value, Expr):
         quoted = where == "cmd" or where == "flow" and "," in value.text
         return f"'{value.text}'" if quoted else value.text
@@ -656,12 +740,24 @@ def _binding(value, where: str = "flow") -> str:
 
 def _defined(value: Def, where: str) -> str:
     """The text of a definition at its first use."""
-    if value.args is None and _kind(value.name) == "phrase":
-        return f"{value.name}={_events(value.value)}"
+    if value.args is None and _kind(value.name) in ("phrase", "section"):
+        return f"{value.name}={_body(value.value, _kind(value.name))}"
     if value.args is None:
         return f"{value.name}={_binding(value.value, where)}"
+    if type(value.value) is tuple:  # pylint: disable=unidiomatic-typecheck
+        return f"{value.name}={_events(value.value)}{_args(value.args)}"
     body = _binding(value.value, "cmd" if isinstance(value.value, Expr) else where)
-    return f"{value.name}={body}({','.join(map(str, value.args))})"
+    return f"{value.name}={body}{_args(value.args)}"
+
+
+def _args(args: tuple) -> str:
+    """A call's arguments: integers and names as written, notes with their octaves."""
+    return "(" + ",".join(_note(a)[0] if isinstance(a, str) else str(a) for a in args) + ")"
+
+
+def _body(value: tuple, kind: str) -> str:
+    """A phrase's events, or a section's items."""
+    return _seq(_item(i) for i in value) if kind == "section" else _events(value)
 
 
 def _row_value(key: str, value) -> str:
@@ -679,7 +775,7 @@ def _program(program: Program) -> str:
 def _command(key: str, value) -> str:
     if key == "legato":
         return " legato"
-    if isinstance(value, tuple) and not isinstance(value, (Call, Run, Def)):
+    if isinstance(value, tuple) and not isinstance(value, (Call, Run, Def, Once)):
         return f" {key}:{value[0]}/{value[1]}"
     return f" {key}:{_binding(value, 'cmd')}"
 
@@ -701,24 +797,51 @@ def _note(note: str, octave=None) -> tuple[str, str | None]:
     is ``octave``, and the octave it leaves for the next note (``octave`` after a rest)."""
     found = _ABSOLUTE.fullmatch(note)
     if found is None:
-        return note, octave
+        return note, None if note not in ("-", "off", "on") else octave
     letter, sharp, number = found.groups()
     return (letter.lower() if sharp else letter) + ("" if number == octave else number), number
 
 
 def _events(events, phrase: bool = True) -> str:
-    """A phrase's events (``init``'s where not ``phrase``: each note with its octave)."""
-    out, octave = [], None
-    for event in events:
-        note, octave = _note(event.note, octave if phrase else None)
-        out.append(_event(event, note))
-    return _seq(out)
+    """A phrase's events, its groups' among them (``init``'s where not ``phrase``: each note
+    with its octave)."""
+    octave = [None]
+
+    def text(items) -> str:
+        out = []
+        for event in items:
+            if isinstance(event, Group):
+                out.append(_group(event, text))
+                continue
+            note, octave[0] = _note(event.note, octave[0] if phrase else None)
+            out.append(_event(event, note))
+        return ",".join(out)
+
+    return "[" + text(events) + "]"
+
+
+def _group(group: Group, text) -> str:
+    """A group: its body and endings each by ``text``, then its count."""
+    parts = [text(group.body)] + [text(e) for e in group.endings]
+    return "[" + "|".join(parts) + "]" + ("" if group.times is None else f"x{group.times}")
+
+
+def _item(item) -> str:
+    """A song item."""
+    if isinstance(item, SongRow):
+        return f"play:{_seq(_play(p) for p in item.play)}"
+    if isinstance(item, Part):
+        times = "" if item.times is None else f"x{item.times}"
+        return _binding(item.section) + times
+    return _group(item, lambda items: ",".join(_item(i) for i in items))
 
 
 def _play(entry) -> str:
     if isinstance(entry, str):
         return entry
-    if isinstance(entry.phrase, (str, Def)):
+    if isinstance(entry.phrase, Call):
+        head = entry.phrase.name + _args(entry.phrase.args)
+    elif isinstance(entry.phrase, (str, Def)):
         head = _binding(entry.phrase)
     else:
         head = _events(entry.phrase)
@@ -759,6 +882,10 @@ def _header(head: Header) -> list:
         lines.append(f"state:{_flat([(c, list(names)) for c, names in head.state])}\n")
     if head.regs is not None:
         lines.append(f"regs:{_flat(head.regs)}\n")
+    if head.lag is not None:
+        lines.append(f"lag:{head.lag}\n")
+    if head.global_cells is not None:
+        lines.append(f"global:{_flat(head.global_cells)}\n")
     return lines
 
 
@@ -771,7 +898,8 @@ def _template(key: str, body) -> list:
 def _section(section: Section) -> list:
     lines = [f"{section.kind}:\n"]
     for name, value in section.records:
-        text = _events(value) if section.kind == "phrase" else _binding(value, "block")
+        text = _body(value, section.kind) if section.kind in ("phrase", "section") else None
+        text = _binding(value, "block") if text is None else text
         lines.append(f" {name}:{text}\n")
     return lines
 
@@ -780,8 +908,9 @@ def printed(doc: Document) -> str:
     """The one canonical text of ``doc``; CanonicalError where the grammar refuses its shape
     (no meta, no row, an empty play or section, a section twice or out of KINDS order)."""
     kinds = [s.kind for s in doc.defs]
-    if not doc.header.meta or not doc.rows or not all(r.play for r in doc.rows):
-        raise CanonicalError("a document has a meta and rows, each with a play entry")
+    rows = [r for r in doc.rows if isinstance(r, SongRow)]
+    if not doc.header.meta or not doc.rows or not all(r.play for r in rows):
+        raise CanonicalError("a document has a meta and song items, each row with a play entry")
     if kinds != sorted(set(kinds), key=KINDS.index) or not all(s.records for s in doc.defs):
         raise CanonicalError(f"sections {kinds}: each once, with records, in the order {KINDS}")
     return "".join(_lines(doc))
@@ -802,16 +931,17 @@ def _lines(doc: Document) -> list:
     if doc.init is not None:
         lines.append(f"init:{_events(doc.init, phrase=False)}\n")
     lines.append("song:\n")
-    lines += [f" - play:{_seq(_play(p) for p in row.play)}\n" for row in doc.rows]
+    lines += [f" - {_item(item)}\n" for item in doc.rows]
     lines.append(" - end\n" if doc.loop is None else f" - {{loop:{doc.loop}}}\n")
     return lines
 
 
 # ---- definitions at their first use -----------------------------------------------------
 
-_NAMED = re.compile(r"(?:pw|[icfrp])\d+")
+_NAMED = re.compile(r"(?:pw|[icfrps])\d+")
 _PREFIX = {"i": "ins", "c": "ctrl", "pw": "pw", "f": "filter", "r": "restart", "p": "phrase"}
-_REFERENCES = frozenset({"ins", "ctrl", "pw", "filter", "restart", "run", "phrase"})
+_PREFIX["s"] = "section"
+_REFERENCES = frozenset({"ins", "ctrl", "pw", "filter", "restart", "run", "phrase", "section"})
 
 
 def _kind(name: str) -> str:
@@ -840,6 +970,15 @@ def _walk(value, visit, site=None):
         return replace(value, ins=ins, commands=commands)
     if isinstance(value, Play):
         return replace(value, phrase=_walk(value.phrase, visit, "phrase"))
+    if isinstance(value, Part):
+        return replace(value, section=_walk(value.section, visit, "section"))
+    if isinstance(value, SongRow):
+        return replace(value, play=_walk(value.play, visit))
+    if isinstance(value, Group):
+        body, endings = _walk(value.body, visit, site), _walk(value.endings, visit, site)
+        return replace(value, body=body, endings=endings)
+    if isinstance(value, Once):
+        return Once(_walk(value.value, visit, site))
     if isinstance(value, Run):
         return Run(value.kind, _walk(value.program, visit, value.kind))
     if isinstance(value, Slot):
@@ -860,7 +999,7 @@ def _order(doc: Document, visit) -> Document:
         for s in doc.defs
     )
     init = doc.init and _walk(doc.init, visit)
-    rows = tuple(replace(r, play=_walk(r.play, visit)) for r in doc.rows)
+    rows = _walk(doc.rows, visit)
     return replace(doc, header=header, mods=mods, defs=defs, init=init, rows=rows)
 
 
@@ -909,7 +1048,7 @@ def first_use(doc: Document) -> Document:
         if _named(key) in found:
             raise CanonicalError(f"{_named(key)} is defined twice")
         found[_named(key)] = (kind, key, value)
-    reached, todo = set(), [doc.header.slots, doc.init, tuple(r.play for r in doc.rows)]
+    reached, todo = set(), [doc.header.slots, doc.init, doc.rows]
 
     def reach(value, _site):
         name = value.name if isinstance(value, Call) else value
@@ -931,8 +1070,10 @@ def first_use(doc: Document) -> Document:
         body = _walk(body, visit, kind)
         if not isinstance(value, Call):
             return Def(key, body)
-        if kind != "mod":
+        if kind in _CELL:
             body = Run(kind, _cell(kind, body)) if site == "run" else _cell(kind, body)
+        elif kind in ("restart", "ctrl") and site == "run":
+            body = Run(kind, body)
         return Def(key, body, value.args)
 
     kept = tuple((k, v) for k, v in doc.mods if _code.signature(k)[0] not in reached)
