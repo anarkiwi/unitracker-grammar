@@ -132,6 +132,56 @@ where an `INS` token may stand, an inline phrase a `phrase` where a `PHRASE` tok
 anonymous body an `asm` tree of `code_*` statements (`code.Statements` reads it as a `code`),
 and a command's quoted expression an `fexpr`.
 
+## Documents
+
+`unitracker_grammar.document` is the document as typed, frozen dataclasses: `read` builds one from
+a text, its classes build one directly, and `printed` writes its one canonical text, so
+`printed(read(text)) == text` and `read(printed(doc)) == doc`.
+
+```python
+from unitracker_grammar.document import (
+    Call, Code, Document, Event, Expr, Header, Instrument, Play, Program, Signed, Slot, SongRow,
+    printed, read, replace, signature,
+)
+vib = Code.of("lda v\nclc\nadc #c\nsta v\nrts")              # checked statements
+doc = Document(
+    Header("1.23", {"title": "T", "author": "A"}, slots={"freq": [Slot("wave", Call("note")), Slot("tick")]}),
+    mods=[(signature("vib", ["c"]), vib), ("note()", Expr("F(N)"))],
+    rows=[SongRow(
+        [Play("p1"), Play("p1", Signed(12)), "~"],
+        {"ins": [("i1", Instrument({"ad": 9, "sr": 240, "ctrl": Program([{"ctrl": 65}])}))],
+         "phrase": [("p1", [Event("C4", "i1", {"tick.freq": Call("vib", (3,))}), Event("-", steps=3)])]},
+    )],
+    loop=0,
+)
+text = printed(doc)
+doc = replace(doc, loop=None)                                # edits are dataclasses.replace
+```
+
+| class | holds |
+|---|---|
+| `Document(header, tables, mods, init, rows, loop)` | `tables` `{name: ints}`; `mods` the top-level templates `(signature, Expr \| Code)`; `init` events or None; `loop` the row it loops to, None for `end` |
+| `Header(version, meta, clock, voices, tempo, hold, slots, order, state)` | each line, None where not written; `meta` texts as written (`"'A, B'"` quoted); `slots` `{cell: [Slot]}`, `state` `{cell: [(name, size)]}`; `slot(cell)` its Slots |
+| `Slot(name, mod, hold, reset)` | a slot's default binding and its events (`"note-1"`, `"row.freq"`) |
+| `SongRow(play, defs)` | play entries (`Play(phrase, transpose)`, `"~"`, `"end"`; a phrase is a name or inline events) and `{kind: [(name, value)]}` (`Section`s) |
+| `Instrument(fields)`, `Row(keys)` | `{key: value}`, `slot.key` for a slot's, kept in the grammar's order |
+| `Program(rows, loop)` | Rows (or dicts), then `end` (`loop` None) or `{loop: k}` |
+| `Event(note, ins, commands, keep_pw, keep_filter, steps)` | `ins` a name or an Instrument; commands `{key: value}`, `("set", (name, v))` per `!set`, `("legato", True)`, `("filter", "none")`; `steps` the `*k` |
+| `Expr(text)`, `Call(name, args)`, `Code(statements)` | an expression, a call, a routine (an `asm{...}` body where it binds) |
+| `Run(kind, program)`, `Bound(expr, bag)`, `Shape(name, bag)` | an inline program in `run:`; 1.22's template with its bag and an instrument's `mod:` shape |
+| `Signed` | an int written with its sign: `note: +0`, a transpose, `!freq:-3` |
+
+A leaf is otherwise an `int` or a `str` as written (a name, a note, `none`, `hold`, `129^8`, `+ 3`).
+`printed` wraps flow collections and plain scalars as PyYAML's emitter does at width 100 (a break
+before an item, or at a scalar's space, once a line is past the width; continuing at the
+collection's indentation, a scalar's 2 deeper) but never the `hold`, `slots`, `order` and `state`
+lines, and quotes an expression in a flow collection that holds a comma, and in a command or a
+slot's default always. A document read keeps, in its `layout`, any line its text wraps or quotes
+otherwise, and prints it so until an edit changes it.
+
+`tests/roundtrip.py` is a pytest plugin that checks every document a test parses round-trips;
+over unitracker-player's suite: `PYTHONPATH=$GRAMMAR/tests pytest -p roundtrip` in its checkout.
+
 ## Grammar
 
 [`src/unitracker_grammar/canonical.lark`](src/unitracker_grammar/canonical.lark); the document
