@@ -346,10 +346,17 @@ _KEYS |= {"DEF_SECTION": "SECTION"}
 _BODIES = {"asm": "mod", "fexpr": "mod", "instrument": "ins", "phrase": "phrase"}
 
 
-def first_uses(tree: Tree):
+def first_uses(tree: Tree) -> tuple:
     """``(kind, key, body)`` of each definition at its first use in a document parse tree, in
     reading order: its key a token of its section's key type without the ``=``; a template's
-    kind ``mod`` for a code or expression body, else the program kind of its site."""
+    kind ``mod`` for a code or expression body, else the program kind of its site (found once
+    per tree)."""
+    if getattr(tree, "_first_uses", None) is None:
+        tree._first_uses = tuple(_walk_uses(tree))  # pylint: disable=protected-access
+    return tree._first_uses  # pylint: disable=protected-access
+
+
+def _walk_uses(tree: Tree):
     stack = [(tree, (None, None))]
     while stack:
         node, (parent, grand) = stack.pop()
