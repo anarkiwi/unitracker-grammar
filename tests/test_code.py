@@ -6,6 +6,7 @@ import pytest
 from lark import Token
 
 from test_canonical import PROGRAMS
+from test_canonical import canonical as one_text
 from unitracker_grammar import CanonicalError, parse
 from unitracker_grammar.code import (
     LEGAL,
@@ -280,7 +281,7 @@ def test_program_templates_outside_the_rules_are_refused(old, new, match):
     inline program, and a template name used twice."""
     assert old in PROGRAMS
     with pytest.raises(CodeError, match=match):
-        programs(parse(PROGRAMS.replace(old, new)))
+        programs(parse(one_text(PROGRAMS.replace(old, new))))
 
 
 def test_a_cell_expression_naming_no_parameter_is_no_template_s_concern():

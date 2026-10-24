@@ -31,7 +31,6 @@ from unitracker_grammar.document import (
     base,
     printed,
     read,
-    replace,
     signature,
 )
 
@@ -280,16 +279,12 @@ song:
 """
 
 
-def test_a_line_read_wrapped_otherwise_keeps_its_wraps_until_edited():
+@pytest.mark.noncanonical
+def test_a_text_read_wrapped_otherwise_prints_its_one_canonical_text():
     doc = read(HAND)
-    assert printed(doc) == HAND
-    assert len(doc.layout) == 3
-    section = doc.rows[0].defs[0]
-    edited = replace(section, records=(section.records[0], ("i2", Instrument({"ad": 1}))))
-    row = replace(doc.rows[0], defs=(edited, doc.rows[0].defs[1]))
-    out = printed(replace(doc, rows=(row,)))
-    assert "        i2: {ad: 1}\n" in out and "            + 296" in out
-    assert printed(Document(doc.header, rows=doc.rows, loop=0)) != HAND
+    out = printed(doc)
+    assert out != HAND and read(out) == doc and printed(read(out)) == out
+    assert "        i1: {pw: 95*φ + 296, restart: [{hold: 3, ctrl: ^8, gate: 0}, {}, end]}\n" in out
 
 
 def test_a_text_outside_the_grammar_is_refused_at_its_place():
@@ -297,14 +292,6 @@ def test_a_text_outside_the_grammar_is_refused_at_its_place():
         read("unitracker 1.23\n")
     with pytest.raises(Exception):
         Code.of("lda v\n")
-
-
-def test_a_layout_that_does_not_match_its_text_is_dropped():
-    doc = read(HAND)
-    assert printed(doc) == HAND
-    from unitracker_grammar import document  # pylint: disable=import-outside-toplevel
-
-    assert not document._layout(["x\n"], ["y\n"])  # pylint: disable=protected-access
 
 
 def test_top_level_definitions_print_after_the_templates_at_two_spaces():

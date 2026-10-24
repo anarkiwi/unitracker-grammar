@@ -179,10 +179,11 @@ A leaf is otherwise an `int` or a `str` as written (a name, a note, `none`, `hol
 before an item, or at a scalar's space, once a line is past the width; continuing at the
 collection's indentation, a scalar's 2 deeper) but never the `hold`, `slots`, `order` and `state`
 lines, and quotes an expression in a flow collection that holds a comma, and in a command or a
-slot's default always. A document read keeps, in its `layout`, any line its text wraps or quotes
-otherwise, and prints it so until an edit changes it.
+slot's default always. That is a document's one canonical text: the grammar also admits other
+line wraps, which `read` accepts and `printed` writes canonically.
 
-`tests/roundtrip.py` is a pytest plugin that checks every document a test parses round-trips;
+`tests/roundtrip.py` is a pytest plugin that checks every document a test parses is its one
+canonical text, `printed(read(text)) == text` (a test marked `noncanonical` reads other spellings);
 over unitracker-player's suite: `PYTHONPATH=$GRAMMAR/tests pytest -p roundtrip` in its checkout.
 
 ## Grammar

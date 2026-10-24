@@ -52,7 +52,6 @@ KINDS = ("restart", "ins", "ctrl", "pw", "filter", "mod", "x", "phrase")
 CELLS = ("freq", "pw", "cut")
 _HARD = "\x00"  # a space the grammar spells literally, never a line wrap
 _WRAP = re.compile(r"\n +")
-_OPENED = re.compile(r"([\[{])\n +")
 _INT = re.compile(r"\d+")
 _ROW_KEYS = "wait hold ctrl gate note ad sr pw cut res route mode freq run filter vol".split()
 _INS_KEYS = "ad sr ctrl pw filter freq mod restart".split()
@@ -293,7 +292,7 @@ class Document(_Node):  # pylint: disable=too-many-instance-attributes
     """A whole document: its header, tables ``(name, values)``, top-level templates
     ``(signature, Expr | Code)``, top-level definitions (Sections, or ``{kind: records}``),
     init events (None where not written), timeline rows and ending, ``loop`` the row it loops
-    to (None for ``end``); ``layout`` pairs a printed line with its text as read otherwise."""
+    to (None for ``end``)."""
 
     header: Header = field(default_factory=Header)
     tables: tuple = ()
@@ -302,7 +301,6 @@ class Document(_Node):  # pylint: disable=too-many-instance-attributes
     init: tuple | None = None
     rows: tuple = ()
     loop: int | None = None
-    layout: tuple = field(default=(), compare=False, repr=False)
 
     def _normal(self):
         _set(self, "tables", tuple((k, tuple(v)) for k, v in _pairs(self.tables)))
@@ -675,29 +673,7 @@ def read(text: str) -> Document:
         doc = _ToModel(text).transform(tree)
     except exceptions.VisitError as exc:
         raise exc.orig_exc from exc
-    return replace(doc, layout=_layout(_lines(doc), text.splitlines(keepends=True)))
-
-
-def _unwrapped(text: str) -> str:
-    return _WRAP.sub(" ", _OPENED.sub(r"\1", text))
-
-
-def _layout(lines: list, physical: list) -> tuple:
-    """``(line, as read)`` of each printed line whose text as read wraps otherwise."""
-    out, at = [], 0
-    for line in lines:
-        target, k = _unwrapped(line), 1
-        while at + k <= len(physical):
-            written = "".join(physical[at : at + k])
-            if len(_unwrapped(written)) >= len(target):
-                break
-            k += 1
-        if _unwrapped(written) != target:
-            return tuple(out)
-        if written != line:
-            out.append((line, written))
-        at += k
-    return tuple(out)
+    return doc
 
 
 # ---- printing -----------------------------------------------------------------------------
@@ -908,19 +884,8 @@ def _record(kind: str, name: str, value, indent: int = 8) -> list:
 
 
 def printed(doc: Document) -> str:
-    """The canonical text of ``doc``: its lines as read where its layout holds them."""
-    layout = {}
-    for line, written in doc.layout:
-        layout.setdefault(line, []).append(written)
-    seen = {}
-    out = []
-    for line in _lines(doc):
-        forms = layout.get(line)
-        if forms:
-            k = seen[line] = seen.get(line, -1) + 1
-            line = forms[min(k, len(forms) - 1)]
-        out.append(line)
-    return "".join(out)
+    """The one canonical text of ``doc``."""
+    return "".join(_lines(doc))
 
 
 def _lines(doc: Document) -> list:

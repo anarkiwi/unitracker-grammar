@@ -5,6 +5,7 @@ from lark import Token, Tree
 
 from unitracker_grammar import expr
 from unitracker_grammar.code import Statements, inline
+from unitracker_grammar.document import printed, read
 from unitracker_grammar import (
     GRAMMAR,
     NTSC_HZ,
@@ -23,9 +24,18 @@ INS = "      ins:\n        i1: "
 def doc(
     defs: str, head: str = "", play: str = "[p1, p1, p1]", ending: str = "  - {loop: 0}"
 ) -> str:
-    """A document of one row defining ``defs`` and phrase ``p1``."""
+    """A document of one row defining ``defs`` and phrase ``p1``, in its one canonical text
+    where it is in the grammar."""
     phrase = "      phrase:\n        p1: [C4.i1, -*3]\n"
-    return f"{HEADER}{head}song:\n  - def:\n{defs}{phrase}    play: {play}\n{ending}\n"
+    return canonical(f"{HEADER}{head}song:\n  - def:\n{defs}{phrase}    play: {play}\n{ending}\n")
+
+
+def canonical(text: str) -> str:
+    """The one canonical text of a document's ``text``, or ``text`` outside the grammar."""
+    try:
+        return printed(read(text))
+    except ValueError:
+        return text
 
 
 def chain(tree: Tree, prefix: str) -> list[tuple[str, list[str]]]:
@@ -755,7 +765,7 @@ def test_other_call_spellings_are_refused(defs):
         parse(doc(defs))
 
 
-INLINE = (
+INLINE = canonical(
     "unitracker: 1.23\nmeta: {title: T}\ninit: [C4.{ad: 1}!pw:'v + 1']\nsong:\n  - def:\n"
     "      ins:\n        i1: {ctrl: [{ctrl: 65, run: pw[{pw: 5}, end]}, end],"
     " pw: asm{lda v; up:; adc #1; sta v; bne up; rts}, freq: asm{rts}}\n"
