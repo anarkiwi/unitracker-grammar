@@ -109,7 +109,8 @@ class Imm(NamedTuple):
 
 class Mem(NamedTuple):
     """A memory operand: ``symbol`` (a symbol, ``T.lo`` or ``T.hi``), its ``offset`` (written
-    ``+offset`` when not 0) and its ``index`` (written ``,x`` or ``,y`` when set)."""
+    with its sign when not 0, negative only on a table's bytes) and its ``index`` (written ``,x``
+    or ``,y`` when set)."""
 
     symbol: str
     offset: int = 0
@@ -190,6 +191,8 @@ def _refusal(statement: Op, labels: set) -> str | None:
         return f"{operand.symbol!r} is a register, not a memory symbol"
     if isinstance(operand, Mem) and operand.symbol in labels:
         return f"{operand.symbol!r} is a label, not a memory symbol"
+    if isinstance(operand, Mem) and operand.offset < 0 and "." not in operand.symbol:
+        return f"{line(statement)!r}: a negative offset is on a table's bytes only"
     if isinstance(operand, Imm) and isinstance(operand.value, int) and not 0 <= operand.value < 256:
         return f"immediate {operand.value} is not a byte"
     return None
@@ -244,7 +247,7 @@ def line(statement) -> str:
     if isinstance(operand, Imm):
         return f"{name} #{operand.byte}{operand.value}"
     if isinstance(operand, Mem):
-        offset = f"+{operand.offset}" if operand.offset else ""
+        offset = f"{operand.offset:+d}" if operand.offset else ""
         return f"{name} {operand.symbol}{offset}{',' + operand.index if operand.index else ''}"
     return f"{name} {operand}"
 

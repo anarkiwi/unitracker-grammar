@@ -81,6 +81,8 @@ def test_a_routine_is_its_statements_in_order():
 def test_a_routine_prints_its_one_text():
     assert printed(read(VIB)) == canonical(VIB) == VIB
     assert line(Op("lda", "memory,x", Mem("v", 1, "x"))) == "lda v+1,x"
+    assert read("lda F.hi-24,y\nrts\n")[0] == Op("lda", "memory,y", Mem("F.hi", -24, "y"))
+    assert canonical("lda F.lo-24,y\nrts\n") == "lda F.lo-24,y\nrts\n"
     assert read(printed((op("rts"),))) == (Op("rts", "implied"),)
 
 
@@ -124,6 +126,7 @@ def test_the_legal_table_is_the_nmos_6502_s_documented_opcodes_less_three():
         ("lda #256\nrts\n", "immediate 256 is not a byte"),
         ("stx t,x\nrts\n", "stx has no memory,x mode"),
         ("lda up\nup:\nrts\n", "'up' is a label, not a memory symbol"),
+        ("lda v-1\nrts\n", "negative offset is on a table's bytes only"),
         ("sta #1\nrts\n", "sta has no immediate mode"),
         ("clc #1\nrts\n", "clc has no immediate mode"),
         ("lda\nrts\n", "lda has no implied mode"),
@@ -143,6 +146,9 @@ def test_a_routine_outside_the_template_rules_is_refused(text, why):
         "lda #-1\nrts\n",
         "lda t+0\nrts\n",
         "lda t+01\nrts\n",
+        "lda F.lo-0,y\nrts\n",
+        "lda F.lo-01,y\nrts\n",
+        "lda F.lo+-1,y\nrts\n",
         "lda (t),y\nrts\n",
         "lda t,z\nrts\n",
         "lda  t\nrts\n",

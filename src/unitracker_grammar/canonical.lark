@@ -247,7 +247,7 @@ DEF_PHRASE.2: /p\d+=/
 DEF_SIG.2: SIGNATURE "="
 // a template call's arguments after its definition
 ARGS: /\((?:(?:[+-]?(?:0|[1-9]\d*)|[a-z][a-z0-9_]*)(?:,(?:[+-]?(?:0|[1-9]\d*)|[a-z][a-z0-9_]*))*)?\)/
-OFFSET: /\+[1-9]\d*/
+OFFSET: /[+-][1-9]\d*/
 INDEX: ",x" | ",y"
 BYTE: "<" | ">"
 

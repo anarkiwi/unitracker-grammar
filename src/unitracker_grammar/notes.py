@@ -14,10 +14,8 @@ ROUNDINGS = {"round": round, "floor": math.floor}
 
 def frequency(note: int, clock_hz: int = PAL_HZ, rounding: str = "round") -> int:
     """``F(k)``: the frequency word of format note ``k`` (C2 is 24) in equal temperament from
-    A4 at 440 Hz, ``rounding`` (``round`` or ``floor``) to a word; 0 below C0 and where the word
-    overflows."""
-    if note < 0:
-        return 0
+    A4 at 440 Hz, ``rounding`` (``round`` or ``floor``) to a word, for every ``k`` (below C0
+    too); 0 where the word rounds to 0 or overflows."""
     word = ROUNDINGS[rounding](A4_HZ * 2 ** ((note - A4) / 12) * PHASE / clock_hz)
     return word if word < WORD else 0
 

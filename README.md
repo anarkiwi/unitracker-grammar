@@ -77,6 +77,7 @@ pip install "unitracker-grammar @ git+https://github.com/anarkiwi/unitracker-gra
 from unitracker_grammar import parse, CanonicalError, frequency, table
 tree = parse(text)        # a checked lark.Tree, or CanonicalError naming the line and column
 frequency(57)             # F(57): A4 at the PAL clock
+frequency(-24)            # F(-24): C-2, notes below C0 too (0 where the word rounds to 0)
 table(clock_hz=1022727)   # F(k) for every note whose word fits, from C0, at NTSC
 frequency(57, 985240, "floor")  # F(k) = R(440 * 2**((k - 57)/12) * 2**24 / clock_hz), R round or floor
 ```
@@ -112,7 +113,8 @@ replaces with integers. `source` is the Python source of an expression (`Express
 and `rti`, with no indirect modes and no comments, that end in `rts`. A routine is a tuple of
 statements, each a `Label(name)` or an `Op(mnemonic, mode, operand)`: `mode` is `implied`
 (`lsr` bare is the accumulator's), `immediate` (`Imm(value, byte)`: `#7`, `#p`, `#<p`, `#>p`),
-`memory`, `memory,x` or `memory,y` (`Mem(symbol, offset, index)`: `v`, `v+1`, `G.lo+3,x`), or
+`memory`, `memory,x` or `memory,y` (`Mem(symbol, offset, index)`: `v`, `v+1`, `G.lo+3,x`, and
+a negative offset on a table's bytes only, `F.lo-24,y`), or
 `label` (a branch's or `jmp`'s label name).
 
 ```python
@@ -132,7 +134,7 @@ its cell's state are set, A, X, Y and the flags (but I) are 0, and the routine r
 on an empty stack, within 4096 instructions; `v` wrapped to the cell's width is its value and the
 state is stored back. A symbol that is none of these, or a state variable of another cell, is
 refused when the template is bound. `F.lo` / `F.hi` are the note table's bytes, entry k those
-of `frequency(k, clock_hz, rounding)` for k 0-255.
+of `frequency(k, clock_hz, rounding)` for k -128-255, so `F.lo-24,y` reads entry y - 24.
 
 ```python
 code.signature("vib(l, c, s)")            # ('vib', ('l', 'c', 's')), CodeError on a repeat
