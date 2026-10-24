@@ -46,7 +46,7 @@ def document(head: str, block: str) -> str:
     """A document of the header lines ``head`` and a template ``vib(c,p)`` of ``block``."""
     body = "".join(f"\t{s}\n" for s in block[:-1].split("\n"))
     return (
-        f"unitracker:2.2\nmeta:{{title:T}}\n{head}tables:\n G:[1]\n"
+        f"unitracker:2.3\nmeta:{{title:T}}\n{head}tables:\n G:[1]\n"
         f"mod:\n vib(c,p):|\n{body}"
         " porta(s):v + s\nins:\n i1:{freq:vib(3,9)}\nphrase:\n p1:[C4.i1]\n"
         "song:\n - play:[p1]\n - end\n"
@@ -216,7 +216,7 @@ def test_a_signature_declares_the_parameters_the_body_reads():
 
 
 TOP = (
-    "unitracker:2.2\nmeta:{title:T}\nstate:{freq:{t:1}}\nmod:\n walk(s):v + s*n\n"
+    "unitracker:2.3\nmeta:{title:T}\nstate:{freq:{t:1}}\nmod:\n walk(s):v + s*n\n"
     " note():F(N)\n vib(c,p):|\n\tlda t\n\tcmp #c\n\tlda #>p\n\tlda F.lo,x\n"
     "\trts\n add(d):|\n\tadc #d\n\trts\nsong:\n - play:[p1]\n - end\n"
 )
@@ -273,7 +273,7 @@ def test_a_document_s_program_templates_are_their_kinds_and_parameters():
         ("fl(c):c", "fl():c", r"fl\(\): undeclared \['c'\]"),
         ("route:3,", "route:m,", r"c1: reads \['m'\] and declares no parameter"),
         ("pw1:pt(4)", "pw1:pt(q)", r"pw1: reads \['q'\]"),
-        ("ctrl:arp(7,-4)", "ctrl:arp(7,z)", r"parameters \['z'\] read outside a template"),
+        ("ctrl:arp(7,-4)", "ctrl:arp(7,z)", r"i1: reads \['z'\] and declares no parameter"),
         (" run:arp(1,2)", " run:arp(1,y)", r"\['y'\] read outside"),
         ("{pw:walk(b)}", "{pw:2*b}", "2\\*b: a parameter is a whole cell value"),
         ("run:fl(a)}", "run:ctrl[{ctrl:a},end]}", "an inline program reads no parameter, a"),
@@ -296,7 +296,7 @@ def test_a_cell_expression_naming_no_parameter_is_no_template_s_concern():
 
 
 CHECKED = (
-    "unitracker:2.2\nmeta:{title:T}\ntables:\n Fo:[1]\n Nx:[2]\n"
+    "unitracker:2.3\nmeta:{title:T}\ntables:\n Fo:[1]\n Nx:[2]\n"
     "mod:\n f(a):v + a + Fo[phi] + Nx[n]\n g(a):|\n\tlda #a\n\tsta v\n\trts\n"
     "ctrl:\n h(a):[{ctrl:a},end]\n"
     "phrase:\n p1:[C4 pw:f(1) cut:asm{lda Fo.lo; sta v; rts} freq:'v + 1']\n"

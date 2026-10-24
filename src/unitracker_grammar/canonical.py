@@ -34,16 +34,25 @@ def absolute(note: str, octave: str | None = None) -> str:
     return letter.upper() + "#" * letter.islower() + (written or octave)
 
 
+def _events(node: Tree):
+    """The events of a phrase's parse tree in reading order, its groups' among them."""
+    for child in node.children:
+        if isinstance(child, Tree):
+            yield from [child] if child.data == "event" else _events(child)
+
+
 def _resolve(tree: Tree):
-    """Each note of ``tree`` written absolute (``C#4``): a phrase's notes in order, each without
-    its octave taking the previous note's in that phrase, ``init``'s and a program row's each
-    with its own."""
+    """Each note of ``tree`` written absolute (``C#4``): a phrase's notes in reading order, each
+    without its octave taking the previous note's in that phrase (none after a parameter),
+    ``init``'s and a program row's each with its own."""
     for node in tree.iter_subtrees():
         if node.data in ("phrase", "init"):
             octave = None
-            for event in node.children:
+            for event in _events(node):
                 atom = event.children[0]
-                if _NOTE.fullmatch(atom):
+                if atom.type == "NOTE_PARAM":
+                    octave = None
+                elif _NOTE.fullmatch(atom):
                     note = _absolute(atom, octave if node.data == "phrase" else None)
                     event.children[0] = note
                     octave = note.lstrip("ABCDEFG#")

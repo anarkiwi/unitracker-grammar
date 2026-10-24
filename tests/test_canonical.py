@@ -17,7 +17,7 @@ from unitracker_grammar import (
     table,
 )
 
-HEADER = "unitracker:2.2\nmeta:{title:T,author:A}\n"
+HEADER = "unitracker:2.3\nmeta:{title:T,author:A}\n"
 INS = "ins:\n i1:"
 
 
@@ -186,7 +186,7 @@ REFUSED = [
     (doc(phrases=" p2:[C4 .i1]\n"), 5, 8),
     (doc(INS + "{pw:v+1}\n"), 4, 10),
     (doc("vinit:\n 0:{pw:256}\n"), 3, 1),
-    (doc(ending=" - loop:0"), 7, 1),
+    (doc(ending=" - loop:0"), 7, 4),
     (HEADER.replace("meta", "title") + "song:\n - end\n", 2, 1),
     (HEADER.replace("meta", "playroutine:{ref:goattracker2}\nmeta") + "song:\n - end\n", 2, 1),
     (doc("tables:\n ftab:[1,2]\n"), 4, 2),
@@ -203,7 +203,7 @@ def test_other_spellings_are_refused_at_their_place(text, line, column):
 
 
 BASE = (
-    "unitracker:2.2\nmeta:{title:T}\ntempo:3\nslots:{pw:{a:{mod:m()}}}\n"
+    "unitracker:2.3\nmeta:{title:T}\ntempo:3\nslots:{pw:{a:{mod:m()}}}\n"
     "mod:\n m():v + 1\n porta(s):v + s\n"
     "ins:\n i1:{ad:9,pw:m(),freq:porta(3)}\n"
     "ctrl:\n arp(a,b):[{ctrl:a,note:+b},{run:arp(a,b)},end]\n"
@@ -216,9 +216,9 @@ BASE = (
 @pytest.mark.parametrize(
     "old, new",
     [
-        ("unitracker:2.2", "unitracker:1.23"),
-        ("unitracker:2.2", "unitracker:2.0"),
-        ("unitracker:2.2", "unitracker:2"),
+        ("unitracker:2.3", "unitracker:1.23"),
+        ("unitracker:2.3", "unitracker:2.0"),
+        ("unitracker:2.3", "unitracker:2"),
         ("tempo:3\n", "tempo:3\nhold:{freq:[step-1,row]}\n"),
         ("pw:\n pt(b)", "x:\n x1:v + 1\npw:\n pt(b)"),
         ("phrase:\n", "x:\n x1:v + 1\nphrase:\n"),
@@ -663,7 +663,7 @@ def test_other_call_spellings_are_refused(top, phrases):
 
 
 INLINE = canonical(
-    "unitracker:2.2\nmeta:{title:T}\ntables:\n T:[1]\n"
+    "unitracker:2.3\nmeta:{title:T}\ntables:\n T:[1]\n"
     "ins:\n i1:{ctrl:[{ctrl:65,run:pw[{pw:5},end]},end],"
     "pw:asm{lda v; up:; adc #1; sta v; bne up; rts},freq:asm{rts}}\n"
     "init:[C4.{ad:1} pw:'v + 1']\nsong:\n"
@@ -731,7 +731,7 @@ def test_other_inline_spellings_are_refused(text):
 
 
 PROGRAMS = (
-    "unitracker:2.2\nmeta:{title:T}\nmod:\n walk(s):v + s\n"
+    "unitracker:2.3\nmeta:{title:T}\nmod:\n walk(s):v + s\n"
     "restart:\n hr(h,ad,sr):[{hold:h,gate:0,ad:ad,sr:sr},end]\n"
     "ins:\n i1:{ad:9,ctrl:arp(7,-4),pw:pt(3),filter:fl(5),restart:hr(2,9,220)}\n"
     "ctrl:\n arp(a,b):[{ctrl:a,note:+a},{wait:a,gate:b,note:-b,"

@@ -7,11 +7,11 @@ in its one text and compiled to Python.
 
 A document names no player. It holds everything it plays: instruments, programs, expressions,
 code, phrases and the tables they index. Its only constants are the note table at its clock and
-the header defaults (PAL clock, 3 voices, tempo 6). The grammar is format 2.2's, and refuses
+the header defaults (PAL clock, 3 voices, tempo 6). The grammar is format 2.3's, and refuses
 every other version.
 
 ```text
-unitracker:2.2
+unitracker:2.3
 meta:{title:T,author:A}
 mod:
  vib(c):|
@@ -94,6 +94,40 @@ routing. What each
 construct plays is unitracker-player's
 [semantics](https://github.com/anarkiwi/unitracker-player/blob/main/docs/semantics.md).
 
+## Format 2.3
+
+Sugar that `expand.expanded(doc)` writes in the core (no templates of instruments or phrases, no
+groups, sections, chord names or definitions at their first use), which a player plays; a prelude
+call stays a call.
+
+| construct | text | plays as |
+|---|---|---|
+| prelude | `tick.freq:vibrato(2,3,4)` | a call of the template of `prelude.PRELUDE` (below); a document defines none of their names |
+| chord name | `run:arp(min7)`, `f(2,maj)` | the chord's intervals among the call's arguments, `arp(3,7,10)`, `f(2,4,7)` (`chords.CHORDS`), but a template's own parameter of that name |
+| instrument template | ` arpi(a,b):{ad:a,sr:b,ctrl:arp(a,7)}`, `C4.arpi(9,240)` | each distinct call an instrument `iK`, the next free number in reading order |
+| phrase template | ` riff(x,y):[x.i1,-,y,E4]`, `play:[riff(G1,f1)+2,...]` | the phrase with each parameter its note; a note after a parameter carries its octave |
+| group | `[E,G]x2`, `[A|B|C5]` (a volta), in a phrase and among song items | its body twice; its body before each ending in turn (`A,B,A,C5`) |
+| section | ` s1:[play:[p1,p2,p3],s2x2,[...]x2]` after `phrase:`; song items ` - s1`, ` - s1x3`, ` - play:[...]` | its items in place, the song's `{loop:k}` naming its `k`th item |
+| a record a call | ` i14:arpi(9,240)`, ` p14:riff(G1,f1)` | the record its template's instance |
+| first use | `C4.arpi(a,b)={...}(9,240)`, `riff(x,y)=[...](G1,f1)`, ` - s1=[...]x2` | the definition in its section |
+
+Core constructs a player reads: a binding written with `!` after it (`tick.freq:snap()!`,
+`pw:800!`, `{pw:'v + 3'!}`, an instrument's field) fires once, then leaves its slot unbound; `lag:k`
+(after `regs`) outputs each tick's registers `k` ticks late; `global:[cut]` (after `lag`) makes the
+cutoff, its bindings and the filter program the song's, not the voice's that set them.
+
+| prelude template | drives the cell to |
+|---|---|
+| `vibrato(d,s,l)` | `F(N)`, then from tick `l` a triangle `d` a tick up to `d*s`, down to `-d*s` and back, period `4*s` |
+| `glide(s)` | its value plus `s` a tick |
+| `slide(t,s)` | its value moved toward `F(N + t)` by at most `s` a tick, held there |
+| `pwm(lo,hi,s)` | `lo`, rising `s` a tick to `hi`, falling back to `lo`, repeating |
+| `sweep(a,b,s)` | `a`, moving toward `b` by `s` a tick, held at `b` |
+| `tremolo(lo,hi,s)` | `lo` for `s` ticks, `hi` for `s`, repeating |
+
+`chords.CHORDS` is music21's chord types within an octave, by their longest lowercase
+abbreviation, and `oct` (12): `tools/chords.py` writes it and a test checks it against music21.
+
 ## Install
 
 ```sh
@@ -109,11 +143,14 @@ frequency(57)             # F(57): A4 at the PAL clock
 frequency(-24)            # F(-24): C-2, notes below C0 too (0 where the word rounds to 0)
 table(clock_hz=1022727)   # F(k) for every note whose word fits, from C0, at NTSC
 frequency(57, 985240, "floor")  # F(k) = R(440 * 2**((k - 57)/12) * 2**24 / clock_hz), R round or floor
+from unitracker_grammar.expand import core, expanded
+core(text)                # the parse tree of text's core (parsed once where it has no sugar)
 ```
 
 `parse` also checks what the grammar cannot say (`code.check_document`): templates, state
 names, anonymous bodies, the tables read, no parameter read outside a template, and a pulse or
-filter record of one binding in its short form, raising `CanonicalError`, `CodeError` or
+filter record of one binding in its short form, each template's parameters (a phrase template's
+note parameters only in it), no prelude name defined, raising `CanonicalError`, `CodeError` or
 `ExpressionError`. `parser()` is the cached `lark.Lark` parser (trees with positions, unchecked)
 and `GRAMMAR` the grammar file resource.
 
@@ -219,16 +256,18 @@ doc = replace(doc, loop=None)                                # edits are datacla
 
 | class | holds |
 |---|---|
-| `Document(header, tables, mods, defs, init, rows, loop)` | `tables` `{name: ints}`; `mods` the templates `(signature, Expr \| Code)`; `defs` the `restart`, `ins`, `ctrl`, `pw`, `filter` and `phrase` sections in that order (`Section`s, or `{kind: [(name, value)]}`); `init` events or None; `rows` SongRows (or play entry lists); `loop` the row it loops to, None for `end` |
-| `Header(meta, clock, voices, tempo, slots, order, state, regs)` | each line, None where not written (the version line is always `VERSION`, `"2.2"`); `clock` `(cycles_per_tick, clock_hz)`, or with `"floor"` third; `meta` texts as written (`"'A, B'"` quoted); `slots` `{cell: [Slot]}`, `state` `{cell: [(name, size)]}`; `slot(cell)` its Slots |
+| `Document(header, tables, mods, defs, init, rows, loop)` | `tables` `{name: ints}`; `mods` the templates `(signature, Expr \| Code)`; `defs` the `restart`, `ins`, `ctrl`, `pw`, `filter`, `phrase` and `section` sections in that order (`Section`s, or `{kind: [(name, value)]}`); `init` events or None; `rows` song items (SongRows, or play entry lists, Parts and Groups); `loop` the item it loops to, None for `end` |
+| `Header(meta, clock, voices, tempo, slots, order, state, regs, lag, global_cells)` | each line, None where not written (the version line is always `VERSION`, `"2.3"`); `clock` `(cycles_per_tick, clock_hz)`, or with `"floor"` third; `meta` texts as written (`"'A, B'"` quoted); `slots` `{cell: [Slot]}`, `state` `{cell: [(name, size)]}`; `slot(cell)` its Slots |
 | `Slot(name, mod, hold, reset)` | a slot's default binding and its events (`"note-1"`, `"row.freq"`) |
 | `SongRow(play)` | play entries (`Play(phrase, transpose)`, `"~"`, `"end"`; a phrase is a name or inline events) |
 | `Section(kind, records)` | `(name, value)` records of one kind; a template's name is its `signature` (`arp(a,b)`), its rows reading parameters as strings (`ad: "a"`, `note: "+a"`, `Call("walk", ("b",))`); a `pw` or `filter` record `Program([{"pw": b}])` (`cut` for `filter`) is stored as `b` |
 | `Instrument(fields)`, `Row(keys)` | `{key: value}`, `slot.key` for a slot's, kept in the grammar's order |
 | `Program(rows, loop)` | Rows (or dicts), then `end` (`loop` None) or `{loop:k}` |
-| `Event(note, ins, commands, keep_pw, keep_filter, steps)` | `note` absolute (`"C#4"`, `"-"`, `"off"`, `"on"`); `ins` a name or an Instrument; commands `{key: value}`, `("legato", True)`; `steps` the `*k` |
+| `Event(note, ins, commands, keep_pw, keep_filter, steps)` | `note` absolute (`"C#4"`, `"-"`, `"off"`, `"on"`) or a phrase template's parameter; `ins` a name, an Instrument or an instrument template's Call; commands `{key: value}`, `("legato", True)`; `steps` the `*k` |
 | `Expr(text)`, `Call(name, args)`, `Code(statements)` | an expression, a call, a routine (an `asm{...}` body where it binds) |
 | `Run(kind, program)` | an inline program after its kind in `run:` or ` run:` |
+| `Group(body, times, endings)`, `Part(section, times)` | a group of events or song items; a song item playing a section |
+| `Once(value)` | a binding that fires once (`value!`) |
 | `Def(name, value, args)` | a definition at its first use: `name` (a template's signature), its value, a template's call's arguments (None for a named one) |
 | `Signed` | an int written with its sign: `note:+0`, a transpose, ` freq:-3` |
 

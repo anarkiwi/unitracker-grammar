@@ -158,7 +158,7 @@ def test_a_built_document_prints_its_canonical_text_and_reads_back_equal():
     assert "regs:[31,11,0,8,65,9,240,0," in text and "- pw:ptab() pw:reset tick.freq:reset" in text
 
 
-NOTES = """unitracker:2.2
+NOTES = """unitracker:2.3
 meta:{title:T}
 phrase:
  p1:[C4,E,-*2,g,C5.{ctrl:[{note:G4},end]},d,off,f,C-1,D,c0]
@@ -248,11 +248,11 @@ def test_a_document_s_records_and_slots_are_looked_up_by_kind_and_cell():
 
 def test_signed_and_expressions_print_as_written():
     assert str(Signed(3)) == "+3" and repr(Signed(-2)) == "-2" and Signed(0) == 0
-    assert str(Expr("v + 1")) == "v + 1" and VERSION == "2.2"
-    assert printed(built()).startswith("unitracker:2.2\n")
+    assert str(Expr("v + 1")) == "v + 1" and VERSION == "2.3"
+    assert printed(built()).startswith("unitracker:2.3\n")
 
 
-QUOTED = """unitracker:2.2
+QUOTED = """unitracker:2.3
 meta:{title:T,author:A}
 ins:
  i1:{pw:'v + 1',freq:'min(v,2)'}
@@ -324,7 +324,7 @@ def test_top_level_definitions_print_after_the_templates_at_one_space():
 def test_reset_is_a_cell_s_keyword_and_no_parameter():
     """``reset`` stands as a cell's value in a row and a command, never as a template's
     parameter; ``regs`` is a list of integers."""
-    head = "unitracker:2.2\nmeta:{title:T}\n"
+    head = "unitracker:2.3\nmeta:{title:T}\n"
     song = "phrase:\n p1:[C4 tick.freq:reset]\nsong:\n - play:[p1]\n - end\n"
     text = head + "regs:[1,2]\nctrl:\n c1:[{pw:reset,cut:reset},end]\n" + song
     assert printed(read(text)) == text
@@ -381,7 +381,7 @@ def test_a_pulse_or_filter_record_of_one_binding_is_that_binding():
     assert read(text.replace("pw1:v + 1", "pw1:[{pw:none},end]"))
 
 
-FIRST = """unitracker:2.2
+FIRST = """unitracker:2.3
 meta:{title:T}
 slots:{freq:{base:{mod:note()='F(N)'()},tick:{}}}
 phrase:
