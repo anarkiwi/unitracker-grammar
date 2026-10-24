@@ -21,7 +21,8 @@ _from_voices: voices _NL _from_tempo? | _from_tempo
 _from_tempo: tempo _NL _from_slots? | _from_slots
 _from_slots: slots _NL _from_order? | _from_order
 _from_order: order _NL _from_state? | _from_state
-_from_state: state _NL _from_tables? | _from_tables
+_from_state: state _NL _from_regs? | _from_regs
+_from_regs: regs _NL _from_tables? | _from_tables
 _from_tables: tables _from_mod? | _from_mod
 _from_mod: def_mod _from_restart? | _from_restart
 _from_restart: def_restart _from_ins? | _from_ins
@@ -62,6 +63,9 @@ state_cut: "cut: " state_vars
 state_vars: _LC state_var (_SEP state_var)* "}"
 state_var: STATE_NAME ": " STATE_SIZE
 
+// the 25 SID registers' values before tick 0, $D400 first
+regs: "regs: " intlist
+
 // the tables expressions index as T[k] (0 outside the list) and code reads as T.lo, T.hi
 tables: "tables:" _NL ("  " XTABLE ": " intlist _NL)+
 intlist: _LB INT (_SEP INT)* "]"
@@ -87,7 +91,8 @@ ending: "  - end" _NL | "  - {loop: " INT "}" _NL
 plays: _LB play (_SEP play)* "]"
 play: (PHRASE | phrase) SIGNED? | CONT | END
 
-// ---- instruments and programs: each key chain the keys from one on, in the grammar's order --
+// ---- instruments and programs: each key chain the keys from one on, in the grammar's order,
+// a cell's keys repeating in the order they apply ----------------------------------------
 
 instrument: _LC ins_ad "}"
 ins_ad: "ad: " INT (_SEP ins_sr)? | ins_sr
@@ -124,7 +129,7 @@ row_vol: "vol: " _int
 
 ctrl_value: INT | CTRLMASK | PARAM
 note_value: SIGNED | NOTE | REL_PARAM
-cell_value: _binding | NONE | HOLD
+cell_value: _binding | NONE | HOLD | RESET
 route_value: _int | ROUTE_ADD | ROUTE_ADD_MASK INT | ROUTE_REMOVE | ROUTE_REMOVE_MASK INT "'"
 // a program's name, or a call of a program template, whose section gives its kind
 _program_ref: CTRL | PW | FILTER | CALL
@@ -148,7 +153,7 @@ cmd_tempo: "!tempo:" INT ("/" INT)? cmd_vtempo | cmd_vtempo
 cmd_vtempo: "!vtempo:" INT ("/" INT)? cmd_freq | cmd_freq
 cmd_freq: CMD_FREQ (SIGNED | INT | _command) cmd_freq | cmd_legato
 cmd_legato: LEGATO |
-_command: CALL | asm | qexpr | NONE | HOLD
+_command: CALL | asm | qexpr | NONE | HOLD | RESET
 keep_pw: KEEP_PW |
 keep_filter: KEEP_FILTER |
 
@@ -214,7 +219,7 @@ TABLE_BYTE: /(?:F|[A-EG-MO-Z][A-Za-z]*)\.(?:lo|hi)/
 // a modulator template's key: its parameters none of the code's symbols
 SIGNATURE: /[a-z][a-z0-9_]*\((?:(?!(?:v|phi|nn|ne|a|x|y)\b)[a-z][a-z0-9_]*(?:, (?!(?:v|phi|nn|ne|a|x|y)\b)[a-z][a-z0-9_]*)*)?\)/
 // a program template's key: its parameters none of the names a cell value means otherwise
-PROGRAM_SIG: /(?!(?:pw|[cfipr])\d+\()[a-z][a-z0-9_]*\((?:(?!(?:v|n|none|hold|(?:pw|[cfipr])\d+)\b)[a-z][a-z0-9_]*(?:, (?!(?:v|n|none|hold|(?:pw|[cfipr])\d+)\b)[a-z][a-z0-9_]*)*)?\)/
+PROGRAM_SIG: /(?!(?:pw|[cfipr])\d+\()[a-z][a-z0-9_]*\((?:(?!(?:v|n|none|hold|reset|(?:pw|[cfipr])\d+)\b)[a-z][a-z0-9_]*(?:, (?!(?:v|n|none|hold|reset|(?:pw|[cfipr])\d+)\b)[a-z][a-z0-9_]*)*)?\)/
 // a call: its arguments integers or, in a program template's rows, its parameters
 CALL: /(?!(?:abs|min|max)\()[a-z][a-z0-9_]*\((?:(?:[+-]?(?:0|[1-9]\d*)|[a-z][a-z0-9_]*)(?:,(?:[+-]?(?:0|[1-9]\d*)|[a-z][a-z0-9_]*))*)?\)/
 OFFSET: /\+[1-9]\d*/
@@ -226,6 +231,7 @@ END: "end"
 LOOP: "loop: "
 NONE: "none"
 HOLD: "hold"
+RESET: "reset"
 ROUTE_ADD: "+"
 ROUTE_ADD_MASK: "+ "
 ROUTE_REMOVE: "'-'"

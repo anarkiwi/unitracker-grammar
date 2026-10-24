@@ -12,6 +12,7 @@ from unitracker_grammar.document import (
     END,
     HOLD,
     NONE,
+    RESET,
     Call,
     Code,
     Document,
@@ -31,6 +32,7 @@ from unitracker_grammar.document import (
     base,
     printed,
     read,
+    replace,
     signature,
 )
 
@@ -55,13 +57,14 @@ def built() -> Document:
         },
         order=("events", "ctrl", "pulse", "filter", "freq", "pw", "cut", "read"),
         state={"freq": [("t", 1)], "pw": [("r", 2)]},
+        regs=[0x1F, 0x0B, 0, 8, 0x41, 9, 240] + [0] * 14 + [7, 0x3C, 0xF1, 0x1F],
     )
     ctrl = Program(
         [
             {"ctrl": 65, "note": Signed(0), "tick.freq": Call("vib", (3,)), "freq": NONE},
             {"wait": 2, "hold": 3, "ctrl": "129^8", "gate": 0, "note": "G#5", "ad": 9, "sr": 240},
             {"pw": Expr("16*min(3, φ) + 512"), "cut": 2048, "res": 15, "route": "+ 3", "mode": 16},
-            {"run": "pw1", "vol": 15, "pw": HOLD, "b.pw": VIB},
+            [("run", "pw1"), ("vol", 15), ("pw", HOLD), ("b.pw", VIB), ("b.pw", RESET)],
             {"run": Run("pw", Program([{"pw": 5}])), "route": "'- 2'"},
         ],
         loop=1,
@@ -84,7 +87,8 @@ def built() -> Document:
         Event("D#2", Instrument({"ad": 1, "freq": Expr("v + 3")}), {"cut": VIB, "ctrl": 33}),
         Event("on", None, {"run": Run("ctrl", Program([{"ctrl": 64}])), "b.pw": Call("ptab", ())}),
         Event("E1", None, {"freq": 256, "mode": 16, "vol": 15, "ad": 1, "sr": 2, "tempo": 8}),
-        Event("-", None, {"run": NONE, "cut": Expr("min(v, 1)"), "pw": Call("ptab")}),
+        Event("-", None, [("run", NONE), ("cut", Expr("min(v, 1)")), ("pw", Call("ptab"))]),
+        Event("-", None, [("pw", Call("ptab")), ("pw", RESET), ("tick.freq", RESET)]),
         Event("C4", Instrument({"ctrl": Call("arp", (7, 4)), "restart": Call("hr", (2,))})),
         Event("-", None, {"run": Call("arp", (3, 4))}),
     ]
@@ -143,6 +147,23 @@ def test_a_built_document_prints_its_canonical_text_and_reads_back_equal():
     )
     assert "  vib(c): |\n    lda t\n    bmi up\n    clc\n    up:\n" in text
     assert "    play: [p1, p2+2, [C4, -*3]-1]\n  - play: [~, p2, end]\n  - {loop: 0}\n" in text
+    assert "sta v+1,x; rts}, b.pw: reset, run: pw1" in text
+    assert (
+        "regs: [31, 11, 0, 8, 65, 9, 240, 0," in text
+        and "-!pw:ptab()!pw:reset!tick.freq:reset" in text
+    )
+
+
+def test_a_cell_s_repeated_keys_keep_the_order_written():
+    """Rows, instruments and commands keep a cell's repeated keys in their order, through the
+    model and its text."""
+    row = Row([("pw", Call("ptab")), ("wait", 1), ("pw", RESET), ("b.pw", NONE)])
+    assert row.keys == (("wait", 1), ("pw", Call("ptab")), ("pw", RESET), ("b.pw", NONE))
+    event = Event("-", None, [("pw", RESET), ("ad", 1), ("pw", Call("ptab"))])
+    assert event.commands == (("pw", RESET), ("pw", Call("ptab")), ("ad", 1))
+    doc = replace(built(), rows=(SongRow([Play([event]), CONT, END]),), loop=None)
+    text = printed(doc)
+    assert "[-!pw:reset!pw:ptab()!ad:1]" in text and read(text) == doc
 
 
 def test_a_constructor_orders_keys_as_the_grammar_and_stores_tuples():
@@ -304,3 +325,18 @@ def test_top_level_definitions_print_after_the_templates_at_two_spaces():
     assert "  note(): F(N)\nins:\n  i1: {ad: 9}\nctrl:\n  c1: [{ctrl: 65}, end]\ninit:" in text
     assert list(doc.records("ins")) == ["i1"] and doc.sections("ctrl")[0][0] is None
     assert read(text) == doc and printed(read(text)) == text
+
+
+def test_reset_is_a_cell_s_keyword_and_no_parameter():
+    """``reset`` stands as a cell's value in a row and a command, never as a template's
+    parameter; ``regs`` is a list of integers."""
+    head = "unitracker: 2.0\nmeta: {title: T}\n"
+    song = "song:\n  - def:\n      phrase:\n        p1: [C4!tick.freq:reset]\n    play: [p1]\n"
+    song += "  - end\n"
+    text = head + "regs: [1, 2]\nctrl:\n  c1: [{pw: reset, cut: reset}, end]\n" + song
+    assert printed(read(text)) == text
+    assert read(text).header.regs == (1, 2)
+    with pytest.raises(CanonicalError):
+        read(head + "ctrl:\n  t(reset): [{ad: reset}, end]\n" + song)
+    with pytest.raises(CanonicalError):
+        read(head + "regs: [1, x]\n" + song)

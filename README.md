@@ -15,13 +15,16 @@ its modulator slots in firing order, each with its default binding and the event
 resets on (`slots: {freq: {wave: {mod: note(), reset: [row.note]}, tick: {hold: [step-1, row]}}}`);
 `order`, the phases of a tick (`order: [events, ctrl, pulse, filter, freq, pw, cut, read]`);
 `state`, per cell its state variables and their sizes in bytes (`state: {freq: {t: 1}, pw: {r: 1,
-q: 2}}`); `tables`; then the definitions that are not song content, each kind a top-level
+q: 2}}`); `regs`, the 25 SID registers' values before tick 0 (`regs: [0, 0, ..., 15]`); `tables`; then the definitions that are not song content, each kind a top-level
 section with records at 2 spaces: `mod:` (templates keyed by their signature, an expression or a
 code block at 4 spaces: `vib(l, c, s): |`, `walk(s): v + s`, `note(): F(N)`), `restart:`,
 `ins:`, `ctrl:`, `pw:`, `filter:`; then `init`, and `song:`, whose rows' `def:` holds their
 phrases. A `slot.` prefix on a cell's row key, instrument field or command (`tick.freq: vib(0,4,
 64)`, `!tick.freq:none`) names the slot it binds or stops; a call binds a template wherever a cell
-is bound, its integer arguments in the signature's order without spaces.
+is bound, its integer arguments in the signature's order without spaces. A modulated cell's
+stops are `none`, `hold` and `reset` (φ back to 0, the binding kept), as a row key's value and a
+command (`{pw: ptab(3), pw: reset}`, `!pw:ptab(3)!pw:reset`); a cell's keys may repeat, and the
+model keeps them in the order written.
 
 A program record (`restart`, `ctrl`, `pw`, `filter`) may be a template keyed by its signature
 (`arp(a, b): [{ctrl: 65, note: +a}, {wait: a, note: -b}, {loop: 0}]`), its rows reading its
@@ -155,7 +158,7 @@ doc = replace(doc, loop=None)                                # edits are datacla
 | class | holds |
 |---|---|
 | `Document(header, tables, mods, defs, init, rows, loop)` | `tables` `{name: ints}`; `mods` the top-level templates `(signature, Expr \| Code)`; `defs` the top-level `restart`, `ins`, `ctrl`, `pw` and `filter` sections (`Section`s, or `{kind: [(name, value)]}`); `init` events or None; `loop` the row it loops to, None for `end` |
-| `Header(version, meta, clock, voices, tempo, slots, order, state)` | each line, None where not written; `version` `VERSION`, `"2.0"`; `meta` texts as written (`"'A, B'"` quoted); `slots` `{cell: [Slot]}`, `state` `{cell: [(name, size)]}`; `slot(cell)` its Slots |
+| `Header(version, meta, clock, voices, tempo, slots, order, state, regs)` | each line, None where not written; `version` `VERSION`, `"2.0"`; `meta` texts as written (`"'A, B'"` quoted); `slots` `{cell: [Slot]}`, `state` `{cell: [(name, size)]}`; `slot(cell)` its Slots |
 | `Slot(name, mod, hold, reset)` | a slot's default binding and its events (`"note-1"`, `"row.freq"`) |
 | `SongRow(play, defs)` | play entries (`Play(phrase, transpose)`, `"~"`, `"end"`; a phrase is a name or inline events) and its `phrase` Section |
 | `Section(kind, records)` | `(name, value)` records of one kind; a template's name is its `signature` (`arp(a, b)`), its rows reading parameters as strings (`ad: "a"`, `note: "+a"`, `Call("walk", ("b",))`) |

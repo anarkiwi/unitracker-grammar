@@ -21,6 +21,7 @@ __all__ = [
     "HOLD",
     "KINDS",
     "NONE",
+    "RESET",
     "VERSION",
     "WIDTH",
     "Call",
@@ -46,7 +47,7 @@ __all__ = [
 ]
 
 VERSION, WIDTH = "2.0", 100
-NONE, HOLD, CONT, END = "none", "hold", "~", "end"
+NONE, HOLD, RESET, CONT, END = "none", "hold", "reset", "~", "end"
 KINDS = ("restart", "ins", "ctrl", "pw", "filter", "phrase")
 CELLS = ("freq", "pw", "cut")
 _HARD = "\x00"  # a space the grammar spells literally, never a line wrap
@@ -246,7 +247,8 @@ class Slot(_Node):
 class Header(_Node):  # pylint: disable=too-many-instance-attributes
     """The header lines, each None (``meta`` empty) where not written; ``meta`` holds each
     text as written, plain or quoted, ``clock`` is ``(cycles_per_tick, clock_hz)``, ``tempo``
-    an int or ``(a, b)``, and ``slots`` and ``state`` are ``(cell, ...)`` pairs."""
+    an int or ``(a, b)``, ``slots`` and ``state`` are ``(cell, ...)`` pairs and ``regs`` the 25
+    registers' values before tick 0."""
 
     version: str = VERSION
     meta: tuple = ()
@@ -256,8 +258,11 @@ class Header(_Node):  # pylint: disable=too-many-instance-attributes
     slots: tuple | None = None
     order: tuple | None = None
     state: tuple | None = None
+    regs: tuple | None = None
 
     def _normal(self):
+        if self.regs is not None:
+            _set(self, "regs", tuple(self.regs))
         for name in ("slots", "state"):
             value = getattr(self, name)
             if value is not None:
@@ -466,6 +471,10 @@ class _ToModel(Transformer):
     @staticmethod
     def state_vars(children):
         return tuple((str(v.children[0]), int(v.children[1])) for v in children)
+
+    @staticmethod
+    def regs(children):
+        return ("regs", children[0])
 
     @staticmethod
     def tables(children):
@@ -766,6 +775,8 @@ def _header(head: Header) -> list:
         lines.append(f"order: {_flat(tuple(head.order))}\n")
     if head.state is not None:
         lines.append(f"state: {_flat([(c, list(names)) for c, names in head.state])}\n")
+    if head.regs is not None:
+        lines.append(_line("regs: ", [_Seq([[str(x)] for x in head.regs])], 0))
     return lines
 
 
