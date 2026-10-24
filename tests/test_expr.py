@@ -116,13 +116,12 @@ def test_a_nonzero_literal_divisor_is_not_guarded():
 
 def _expressions(*texts: str) -> list:
     """The ``expr`` trees of a document whose expressions are ``texts``."""
-    x = "".join(f"        x{k}: {t}\n" for k, t in enumerate(texts))
+    mods = "".join(f"  e{k}(): {t}\n" for k, t in enumerate(texts))
     text = (
-        "unitracker: 1.20\nmeta: {title: T, author: A}\ntables:\n  W: [5, 6, 7]\nsong:\n"
-        f"  - def:\n      x:\n{x}      phrase:\n        p1: [C4, -*3]\n    play: [p1, p1, p1]\n"
-        "  - end\n"
+        "unitracker: 2.0\nmeta: {title: T, author: A}\ntables:\n  W: [5, 6, 7]\n"
+        f"mod:\n{mods}song:\n  - play: [[C4, -*3]]\n  - end\n"
     )
-    (section,) = parse(text).find_pred(lambda t: t.data == "section" and t.children[0].type == "X")
+    (section,) = parse(text).find_data("def_mod")
     return [c for c in section.children if isinstance(c, Tree)]
 
 
@@ -156,9 +155,8 @@ def test_an_expression_wrapped_over_lines_is_one_node():
     """The grammar admits a line wrap wherever a flow space may stand, beyond the one text
     printed writes."""
     text = (
-        "unitracker: 1.20\nmeta: {title: T, author: A}\nsong:\n  - def:\n      ins:\n"
-        "        i1: {freq: 'v\n            + min(φ, 2)'}\n      phrase:\n        p1: [C4.i1]\n"
-        "    play: [p1, p1, p1]\n  - end\n"
+        "unitracker: 2.0\nmeta: {title: T, author: A}\nins:\n  i1: {freq: 'v\n    + min(φ, 2)'}\n"
+        "song:\n  - play: [[C4.i1]]\n  - end\n"
     )
     (node,) = (Nodes().transform(t) for t in parse(text).find_data("fexpr"))
     assert printed(node) == "v + min(2, φ)"

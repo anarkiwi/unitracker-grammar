@@ -6,42 +6,35 @@ table its expressions read as `F(k)`, and the modulator expression language: che
 in its one text and compiled to Python.
 
 A document names no player. It holds everything it plays: instruments, programs, expressions,
-phrases and the tables its expressions index. Its only constants are the note table at its clock
-and the header defaults (PAL clock, 3 voices, tempo 6). Format 1.22's `slots` line names, per
-cell, the modulator slots that fire in order, each with its default binding and the voice
-events it holds and resets on (`slots: {freq: {wave: {mod: note, reset: [row.note]}, tick:
-{hold: [step-1, row]}}}`); its `mod` records are templates over named parameters and its `x`
-records instances (`x1: porta {s: 32}`); a `slot.` prefix on a cell's row key, instrument field
-or command (`tick.freq: x3`, `!tick.freq:x3`) names the slot it binds or stops; its `order`
-line names the phases of a tick in the order they run
-(`order: [events, ctrl, pulse, filter, freq, pw, cut, read]`). Format 1.23's `state` line,
-after `order`, declares per cell its state variables and their sizes in bytes
-(`state: {freq: {t: 1}, pw: {r: 1, q: 2}}`), a copy per voice (one for `cut`), 0 at tick 0, which
-only code templates read and write; a `mod` record may be a code block (`vib: |`, then a
-statement per line at the record's indentation plus 2) instead of an expression. Its templates
-stand in one top-level `mod:` section after `tables:` and before `init`, records at 2 spaces and
-code lines at 4, each keyed by its signature (`  vib(l, c, s): |`, `  walk(s): v + s`,
-`  note(): F(N)`; parameters separated by `, `); a call binds one wherever a cell is bound, its
-integer arguments in the signature's order without spaces (`pw: walk(-2)`,
-`!tick.freq:vib(0,4,64)`, `slots: {freq: {base: {mod: note()}}}`). Its other definitions that
-are not song content follow, each kind one top-level section with records at 2 spaces, in the
-order `restart:`, `ins:`, `ctrl:`, `pw:`, `filter:` (each optional, a `section` tree as a row's
-is); a row's `def:` keeps its `phrase:` section. The grammar admits every
-version's forms (a row's `mod:` records may also be keyed by a signature): which a version plays
-is the player's to say. A definition may also stand inline at its one use in place of its name: a
-program after its kind in `run:` and `!run:` (`run: pw[{pw: 5}, end]`, `!run:ctrl[{ctrl: 64},
-end]`), an instrument after an event's note (`C4.{ad: 9, sr: 240}`), a phrase with its transpose
-in a play entry (`play: [[C4, -*3]+2, ~]`) and, wherever a cell is bound, an anonymous code
-body on one line (`asm{lda v; up:; adc #1; sta v; bne up; rts}`, statements separated by `; `);
-a command and a slot's default also bind a quoted expression (`!pw:'v + 40'`). A program record
-(`restart`, `ctrl`, `pw`, `filter`) may be a template keyed by its signature
+code, phrases and the tables they index. Its only constants are the note table at its clock and
+the header defaults (PAL clock, 3 voices, tempo 6). The grammar is format 2.0's, and refuses
+every other version.
+
+After `meta`, each optional and in this order: `clock`, `voices`, `tempo`; `slots`, per cell
+its modulator slots in firing order, each with its default binding and the events it holds and
+resets on (`slots: {freq: {wave: {mod: note(), reset: [row.note]}, tick: {hold: [step-1, row]}}}`);
+`order`, the phases of a tick (`order: [events, ctrl, pulse, filter, freq, pw, cut, read]`);
+`state`, per cell its state variables and their sizes in bytes (`state: {freq: {t: 1}, pw: {r: 1,
+q: 2}}`); `tables`; then the definitions that are not song content, each kind a top-level
+section with records at 2 spaces: `mod:` (templates keyed by their signature, an expression or a
+code block at 4 spaces: `vib(l, c, s): |`, `walk(s): v + s`, `note(): F(N)`), `restart:`,
+`ins:`, `ctrl:`, `pw:`, `filter:`; then `init`, and `song:`, whose rows' `def:` holds their
+phrases. A `slot.` prefix on a cell's row key, instrument field or command (`tick.freq: vib(0,4,
+64)`, `!tick.freq:none`) names the slot it binds or stops; a call binds a template wherever a cell
+is bound, its integer arguments in the signature's order without spaces.
+
+A program record (`restart`, `ctrl`, `pw`, `filter`) may be a template keyed by its signature
 (`arp(a, b): [{ctrl: 65, note: +a}, {wait: a, note: -b}, {loop: 0}]`), its rows reading its
 parameters where they take an integer, as a relative note (`+a`, `-a`), as a cell value alone
-(`pw: b`) and as a call's argument (`pw: walk(b)`); a call binds it wherever a program name
-stands: an instrument's `ctrl`, `pw`, `filter` and `restart` fields (`restart: hr(2,9,220)`),
-and `run:` and `!run:`, bare or after its kind (`run: ctrl:arp(7,4)`, `!run:arp(7,4)`). Format 1.21's
-`hold` line names, per cell, the events its modulators hold on (unitracker-player's
-[semantics](https://github.com/anarkiwi/unitracker-player/blob/main/docs/semantics.md)).
+(`pw: b`) and as a call's argument (`pw: walk(b)`); a call binds it wherever a program's name
+stands (`ctrl: arp(7,4)`, `restart: hr(2,9,220)`, `run: arp(7,4)`, `!run:arp(7,4)`), its
+section giving its kind. Any definition may also stand inline at its use: a program after its
+kind in `run:` and `!run:` (`run: pw[{pw: 5}, end]`), an instrument after an event's note
+(`C4.{ad: 9, sr: 240}`), a phrase with its transpose in a play entry (`play: [[C4, -*3]+2, ~]`)
+and, wherever a cell is bound, an anonymous code body (`asm{lda v; up:; adc #1; sta v; bne up;
+rts}`); a command and a slot's default also bind a quoted expression (`!pw:'v + 40'`). What each
+construct plays is unitracker-player's
+[semantics](https://github.com/anarkiwi/unitracker-player/blob/main/docs/semantics.md).
 
 ## Install
 
@@ -81,7 +74,7 @@ replaces with integers. `source` is the Python source of an expression (`Express
 
 ## Code templates
 
-`unitracker_grammar.code` owns format 1.23's code templates: NMOS 6502 routines but `brk`, `jsr`
+`unitracker_grammar.code` owns the code templates: NMOS 6502 routines but `brk`, `jsr`
 and `rti`, with no indirect modes and no comments, that end in `rts`. A routine is a tuple of
 statements, each a `Label(name)` or an `Op(mnemonic, mode, operand)`: `mode` is `implied`
 (`lsr` bare is the accumulator's), `immediate` (`Imm(value, byte)`: `#7`, `#p`, `#<p`, `#>p`),
@@ -123,17 +116,15 @@ a larger cell expression nor read by an inline program, and no name is two templ
 programs or modulators. `code.call` reads a parameter argument as its name
 (`call("pt(b,2)")` is `Call("pt", ("b", 2))`).
 
-In the parse tree a signed record's key is a `SIGNATURE` token (`vib(l, c, s)`) where a plain
-one's is a `NAME`, a call is one `CALL` token (`vib(0,-4,32)`) where a binding may be a name or
-an expression, and the top-level section is a `mods` tree of `SIGNATURE` tokens each followed by
-its `expr` or `code` tree; `code.templates` keys each by its bare name. A program template's key
-is a `RESTART_SIG`, `CTRL_SIG`, `PW_SIG` or `FILTER_SIG` token, a parameter a row reads a
-`PARAM` (a `REL_PARAM`, `+a`, in a note) outside any `factor`, and a run's kind before a call a
-`RUN_KIND` token (`ctrl:`) in its `program_name`. An inline program is a
-`run_program` (a `PROGRAM_KIND` token, then its `program`), an inline instrument an `instrument`
-where an `INS` token may stand, an inline phrase a `phrase` where a `PHRASE` token may, an
-anonymous body an `asm` tree of `code_*` statements (`code.Statements` reads it as a `code`),
-and a command's quoted expression an `fexpr`.
+In the parse tree each definition section is a `def_KIND` tree (`def_mod`, `def_restart`,
+`def_ins`, `def_ctrl`, `def_pw`, `def_filter`, `def_phrase`) of key tokens each followed by its
+value: a template's key a `SIGNATURE` token and its value an `expr` or `code` tree, a program
+template's a `PROGRAM_SIG`. A call is one `CALL` token (`vib(0,-4,32)`), a parameter a row reads
+a `PARAM` (a `REL_PARAM`, `+a`, in a note) outside any `factor`, an inline program a
+`run_program` (a `PROGRAM_KIND` token, then its `program`), an inline instrument an
+`instrument` where an `INS` token may stand, an inline phrase a `phrase` where a `PHRASE` token
+may, an anonymous body an `asm` tree of `code_*` statements (`code.Statements` reads it as a
+`code`), and a command's quoted expression an `fexpr`.
 
 ## Documents
 
@@ -148,12 +139,12 @@ from unitracker_grammar.document import (
 )
 vib = Code.of("lda v\nclc\nadc #c\nsta v\nrts")              # checked statements
 doc = Document(
-    Header("1.23", {"title": "T", "author": "A"}, slots={"freq": [Slot("wave", Call("note")), Slot("tick")]}),
+    Header(meta={"title": "T", "author": "A"}, slots={"freq": [Slot("wave", Call("note")), Slot("tick")]}),
     mods=[(signature("vib", ["c"]), vib), ("note()", Expr("F(N)"))],
+    defs={"ins": [("i1", Instrument({"ad": 9, "sr": 240, "ctrl": Program([{"ctrl": 65}])}))]},
     rows=[SongRow(
         [Play("p1"), Play("p1", Signed(12)), "~"],
-        {"ins": [("i1", Instrument({"ad": 9, "sr": 240, "ctrl": Program([{"ctrl": 65}])}))],
-         "phrase": [("p1", [Event("C4", "i1", {"tick.freq": Call("vib", (3,))}), Event("-", steps=3)])]},
+        {"phrase": [("p1", [Event("C4", "i1", {"tick.freq": Call("vib", (3,))}), Event("-", steps=3)])]},
     )],
     loop=0,
 )
@@ -164,27 +155,29 @@ doc = replace(doc, loop=None)                                # edits are datacla
 | class | holds |
 |---|---|
 | `Document(header, tables, mods, defs, init, rows, loop)` | `tables` `{name: ints}`; `mods` the top-level templates `(signature, Expr \| Code)`; `defs` the top-level `restart`, `ins`, `ctrl`, `pw` and `filter` sections (`Section`s, or `{kind: [(name, value)]}`); `init` events or None; `loop` the row it loops to, None for `end` |
-| `Header(version, meta, clock, voices, tempo, hold, slots, order, state)` | each line, None where not written; `meta` texts as written (`"'A, B'"` quoted); `slots` `{cell: [Slot]}`, `state` `{cell: [(name, size)]}`; `slot(cell)` its Slots |
+| `Header(version, meta, clock, voices, tempo, slots, order, state)` | each line, None where not written; `version` `VERSION`, `"2.0"`; `meta` texts as written (`"'A, B'"` quoted); `slots` `{cell: [Slot]}`, `state` `{cell: [(name, size)]}`; `slot(cell)` its Slots |
 | `Slot(name, mod, hold, reset)` | a slot's default binding and its events (`"note-1"`, `"row.freq"`) |
-| `SongRow(play, defs)` | play entries (`Play(phrase, transpose)`, `"~"`, `"end"`; a phrase is a name or inline events) and `{kind: [(name, value)]}` (`Section`s); a template's name is its `signature` (`arp(a, b)`), its rows reading parameters as strings (`ad: "a"`, `note: "+a"`, `Call("walk", ("b",))`) |
+| `SongRow(play, defs)` | play entries (`Play(phrase, transpose)`, `"~"`, `"end"`; a phrase is a name or inline events) and its `phrase` Section |
+| `Section(kind, records)` | `(name, value)` records of one kind; a template's name is its `signature` (`arp(a, b)`), its rows reading parameters as strings (`ad: "a"`, `note: "+a"`, `Call("walk", ("b",))`) |
 | `Instrument(fields)`, `Row(keys)` | `{key: value}`, `slot.key` for a slot's, kept in the grammar's order |
 | `Program(rows, loop)` | Rows (or dicts), then `end` (`loop` None) or `{loop: k}` |
-| `Event(note, ins, commands, keep_pw, keep_filter, steps)` | `ins` a name or an Instrument; commands `{key: value}`, `("set", (name, v))` per `!set`, `("legato", True)`, `("filter", "none")`; `steps` the `*k` |
+| `Event(note, ins, commands, keep_pw, keep_filter, steps)` | `ins` a name or an Instrument; commands `{key: value}`, `("legato", True)`; `steps` the `*k` |
 | `Expr(text)`, `Call(name, args)`, `Code(statements)` | an expression, a call, a routine (an `asm{...}` body where it binds) |
-| `Run(kind, program)`, `Bound(expr, bag)`, `Shape(name, bag)` | a program after its kind in `run:` (inline, or a template's Call: `ctrl:arp(7,4)`); 1.22's template with its bag and an instrument's `mod:` shape |
+| `Run(kind, program)` | an inline program after its kind in `run:` or `!run:` |
 | `Signed` | an int written with its sign: `note: +0`, a transpose, `!freq:-3` |
 
 A leaf is otherwise an `int` or a `str` as written (a name, a note, `none`, `hold`, `129^8`, `+ 3`).
 `printed` wraps flow collections and plain scalars as PyYAML's emitter does at width 100 (a break
 before an item, or at a scalar's space, once a line is past the width; continuing at the
-collection's indentation, a scalar's 2 deeper) but never the `hold`, `slots`, `order` and `state`
+collection's indentation, a scalar's 2 deeper) but never the `slots`, `order` and `state`
 lines, and quotes an expression in a flow collection that holds a comma, and in a command or a
-slot's default always. That is a document's one canonical text: the grammar also admits other
+slot's default always, and nowhere else. That is a document's one canonical text: the grammar also admits other
 line wraps, which `read` accepts and `printed` writes canonically.
 
 `tests/roundtrip.py` is a pytest plugin that checks every document a test parses is its one
 canonical text, `printed(read(text)) == text` (a test marked `noncanonical` reads other spellings);
 over unitracker-player's suite: `PYTHONPATH=$GRAMMAR/tests pytest -p roundtrip` in its checkout.
+`tools/size.py` measures the grammar and the time to build its parser.
 
 ## Grammar
 

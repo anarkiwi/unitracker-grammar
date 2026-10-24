@@ -21,8 +21,8 @@ __all__ = [
     "HOLD",
     "KINDS",
     "NONE",
+    "VERSION",
     "WIDTH",
-    "Bound",
     "Call",
     "Code",
     "Document",
@@ -35,7 +35,6 @@ __all__ = [
     "Row",
     "Run",
     "Section",
-    "Shape",
     "Signed",
     "Slot",
     "SongRow",
@@ -46,16 +45,16 @@ __all__ = [
     "signature",
 ]
 
-WIDTH = 100
+VERSION, WIDTH = "2.0", 100
 NONE, HOLD, CONT, END = "none", "hold", "~", "end"
-KINDS = ("restart", "ins", "ctrl", "pw", "filter", "mod", "x", "phrase")
+KINDS = ("restart", "ins", "ctrl", "pw", "filter", "phrase")
 CELLS = ("freq", "pw", "cut")
 _HARD = "\x00"  # a space the grammar spells literally, never a line wrap
 _WRAP = re.compile(r"\n +")
 _INT = re.compile(r"\d+")
-_ROW_KEYS = "wait hold ctrl gate note ad sr pw cut res route mode freq run filter vol".split()
-_INS_KEYS = "ad sr ctrl pw filter freq mod restart".split()
-_CMD_KEYS = "run pw filter ad sr ctrl resfilt mode vol cut tempo vtempo freq set legato".split()
+_ROW_KEYS = "wait hold ctrl gate note ad sr pw cut res route mode freq run vol".split()
+_INS_KEYS = "ad sr ctrl pw filter freq restart".split()
+_CMD_KEYS = "run pw ad sr ctrl resfilt mode vol cut tempo vtempo freq legato".split()
 
 
 class Signed(int):
@@ -69,11 +68,9 @@ class Signed(int):
 
 @dataclass(frozen=True)
 class Expr:
-    """A modulator expression, as its text (:mod:`unitracker_grammar.expr`'s language);
-    ``quoted`` where it is written quoted though no comma asks for it."""
+    """A modulator expression, as its text (:mod:`unitracker_grammar.expr`'s language)."""
 
     text: str
-    quoted: bool = field(default=False, compare=False)
 
     def __str__(self):
         return self.text
@@ -92,23 +89,8 @@ class Code:
         return cls(_code.read(text if text.endswith("\n") else text + "\n"))
 
 
-class Bound(NamedTuple):
-    """A 1.22 template bound with its parameter bag: ``porta {s: 32}``."""
-
-    expr: object
-    bag: tuple = ()
-
-
-class Shape(NamedTuple):
-    """An instrument's ``mod:`` shape and its parameter bag: ``mod: ramp {step: 2}``."""
-
-    name: str
-    bag: tuple = ()
-
-
 class Run(NamedTuple):
-    """A program after its kind in a ``run:`` or ``!run:``: inline, ``pw[{pw: 5}, end]``, or
-    a template's Call, ``ctrl:arp(7,4)``."""
+    """An inline program after its kind in a ``run:`` or ``!run:``: ``pw[{pw: 5}, end]``."""
 
     kind: str
     program: object
@@ -220,8 +202,8 @@ class Play(_Node):
 
 @dataclass(frozen=True)
 class Section(_Node):
-    """A row's ``def`` section of one kind and its records ``(name, value)``; a ``mod``
-    record's name is its key, a NAME or a :func:`signature`."""
+    """A section of definitions of one kind and its records ``(name, value)``, a template's
+    name its :func:`signature`."""
 
     kind: str
     records: tuple = ()
@@ -234,7 +216,7 @@ class Section(_Node):
 
 @dataclass(frozen=True)
 class SongRow(_Node):
-    """A timeline row: its play entries and its definitions (Sections, or ``(kind,
+    """A timeline row: its play entries and its phrase definitions (Sections, or ``(kind,
     records)`` pairs, a dict)."""
 
     play: tuple
@@ -264,20 +246,19 @@ class Slot(_Node):
 class Header(_Node):  # pylint: disable=too-many-instance-attributes
     """The header lines, each None (``meta`` empty) where not written; ``meta`` holds each
     text as written, plain or quoted, ``clock`` is ``(cycles_per_tick, clock_hz)``, ``tempo``
-    an int or ``(a, b)``, and ``hold``, ``slots`` and ``state`` are ``(cell, ...)`` pairs."""
+    an int or ``(a, b)``, and ``slots`` and ``state`` are ``(cell, ...)`` pairs."""
 
-    version: str = "1.23"
+    version: str = VERSION
     meta: tuple = ()
     clock: tuple | None = None
     voices: int | None = None
     tempo: int | tuple | None = None
-    hold: tuple | None = None
     slots: tuple | None = None
     order: tuple | None = None
     state: tuple | None = None
 
     def _normal(self):
-        for name in ("hold", "slots", "state"):
+        for name in ("slots", "state"):
             value = getattr(self, name)
             if value is not None:
                 _set(self, name, tuple((k, tuple(v)) for k, v in _pairs(value)))
@@ -314,7 +295,7 @@ class Document(_Node):  # pylint: disable=too-many-instance-attributes
         return top + [(i, s) for i, r in enumerate(self.rows) for s in r.defs if s.kind == kind]
 
     def records(self, kind: str) -> dict:
-        """Every record of ``kind``, ``{name: value}``; ``mod``'s top-level templates first."""
+        """Every record of ``kind``, ``{name: value}``; ``mod`` the templates."""
         out = dict(self.mods) if kind == "mod" else {}
         for _, section in self.sections(kind):
             out.update(section.records)
@@ -365,7 +346,7 @@ def _value(value):
     """A binding where an integer and its expression are one text: the int."""
     if isinstance(value, Token):
         return _leaf(value)
-    if isinstance(value, Expr) and not value.quoted and _INT.fullmatch(value.text):
+    if isinstance(value, Expr) and _INT.fullmatch(value.text):
         return int(value.text)
     return value
 
@@ -394,8 +375,17 @@ def _link(key, convert=lambda own: own[0], normal=_value):
 
 
 def _token(value):
-    """A command's value: a token's, an expression kept as quoted."""
+    """A command's value: a token's, an expression kept as written."""
     return _leaf(value) if isinstance(value, Token) else value
+
+
+def _definitions(kind: str):
+    """A definition section's rule: its records, each a key token and its value."""
+
+    def method(_self, children):
+        return Section(kind, tuple((str(k), v) for k, v in zip(children[::2], children[1::2])))
+
+    return method
 
 
 class _ToModel(Transformer):
@@ -409,17 +399,16 @@ class _ToModel(Transformer):
 
     @v_args(meta=True)
     def expr(self, meta, _children):
-        text = _WRAP.sub(" ", self.source[meta.start_pos : meta.end_pos])
-        return Expr(text, "," not in text and self.source[meta.start_pos - 1] == "'")
+        return Expr(_WRAP.sub(" ", self.source[meta.start_pos : meta.end_pos]))
 
     @staticmethod
     def start(children):
-        head, body = {"version": str(children[0])}, {"rows": []}
+        head, body = {"version": str(children[0])}, {"rows": [], "defs": []}
         for c in children[1:]:
             if isinstance(c, SongRow):
                 body["rows"].append(c)
             elif isinstance(c, Section):
-                body["defs"] = (*body.get("defs", ()), c)
+                body["defs"].append(c)
             elif c[0] in ("tables", "mods", "init", "loop"):
                 body[c[0]] = c[1]
             else:
@@ -449,14 +438,6 @@ class _ToModel(Transformer):
     @staticmethod
     def tempo(children):
         return ("tempo", _pair([int(c) for c in children]))
-
-    @staticmethod
-    def hold(children):
-        return ("hold", tuple(children))
-
-    @staticmethod
-    def hold_cell(children):
-        return (str(children[0]), children[1])
 
     @staticmethod
     def events(children):
@@ -495,7 +476,7 @@ class _ToModel(Transformer):
         return tuple(int(c) for c in children)
 
     @staticmethod
-    def mods(children):
+    def def_mod(children):
         return ("mods", tuple(zip(map(str, children[::2]), children[1::2])))
 
     @staticmethod
@@ -523,21 +504,6 @@ class _ToModel(Transformer):
         return Play(phrase, Signed(children[1]) if len(children) > 1 else None)
 
     @staticmethod
-    def section(children):
-        kind = {"NAME": "mod", "SIGNATURE": "mod", "INS": "ins"}.get(
-            children[0].type, children[0].type.lower().removesuffix("_sig")
-        )
-        records = []
-        for c in children:
-            if isinstance(c, Token):
-                records.append([str(c)])
-            elif isinstance(c, dict):
-                records[-1][1] = Bound(records[-1][1], tuple(c.items()))
-            else:
-                records[-1].append(_value(c) if kind in ("pw", "filter", "x") else c)
-        return Section(kind, tuple(tuple(r) for r in records))
-
-    @staticmethod
     def instrument(children):
         return Instrument(children[0] if children else ())
 
@@ -554,32 +520,8 @@ class _ToModel(Transformer):
     cell_value = modulation
 
     @staticmethod
-    def bound(children):
-        return Bound(children[0], tuple(children[1].items()))
-
-    @staticmethod
     def fexpr(children):
         return children[0]
-
-    @staticmethod
-    def param_bag(children):
-        return dict(children)
-
-    @staticmethod
-    def pname_val(children):
-        return (str(children[0]), _value(children[1]))
-
-    @staticmethod
-    def pname_list(children):
-        return tuple(_leaf(c) for c in children)
-
-    @staticmethod
-    def ins_fn(children):
-        rest = next((c for c in children if isinstance(c, _Chain)), _Chain())
-        if not isinstance(children[0], Token):
-            return rest
-        bag = next((c for c in children if isinstance(c, dict)), {})
-        return _Chain([("mod", Shape(str(children[0]), tuple(bag.items())))] + rest)
 
     @staticmethod
     def row_(children):
@@ -599,12 +541,6 @@ class _ToModel(Transformer):
         return text + "'" if text.startswith("'- ") else text
 
     @staticmethod
-    def program_name(children):
-        if len(children) == 2:
-            return Run(str(children[0])[:-1], _leaf(children[1]))
-        return _leaf(children[0])
-
-    @staticmethod
     def run_program(children):
         return Run(str(children[0]), children[1])
 
@@ -619,17 +555,6 @@ class _ToModel(Transformer):
         ins = str(ins) if isinstance(ins, Token) else ins
         steps = int(rest[3]) if len(rest) > 3 else None
         return Event(note, ins, tuple(rest[0]), rest[1], rest[2], steps)
-
-    @staticmethod
-    def cmd_filter(children):
-        rest = children[-1]
-        return _Chain([("filter", NONE)] + rest) if len(children) > 1 else rest
-
-    @staticmethod
-    def cmd_set(children):
-        rest = children[-1] if isinstance(children[-1], _Chain) else _Chain()
-        flat = [c for c in children if isinstance(c, Token)]
-        return _Chain([("set", (str(k), _leaf(v))) for k, v in zip(flat[::2], flat[1::2])] + rest)
 
     @staticmethod
     def cmd_legato(children):
@@ -649,14 +574,14 @@ class _ToModel(Transformer):
     code_imm, code_mem = _code.Statements.code_imm, _code.Statements.code_mem
 
 
-_ROW_LINKS = "wait hold ctrl gate note ad sr pw cut res route mode freq run filter vol"
 for _name, _method in {
-    **{f"row_{k}": _link(k) for k in _ROW_LINKS.split()},
-    **{f"ins_{k}": _link(k) for k in "ad sr ctrl restart pw filter freq".split()},
+    **{f"row_{k}": _link(k) for k in _ROW_KEYS},
+    **{f"ins_{k}": _link(k) for k in _INS_KEYS},
     **{f"cmd_{k}": _link(k, normal=_token) for k in "run ad sr ctrl mode vol pw cut freq".split()},
     **{f"cmd_{k}": _link(k, _pair) for k in ("resfilt", "tempo", "vtempo")},
     **{f"slot_{k}": _link(k, normal=_token) for k in ("mod", "hold", "reset")},
     **{f"state_{k}": _link(k) for k in CELLS},
+    **{f"def_{k}": _definitions(k) for k in KINDS},
 }.items():
     setattr(_ToModel, _name, _method)
 
@@ -680,13 +605,12 @@ def read(text: str) -> Document:
 
 
 class _Seq(NamedTuple):
-    """A flow collection: its items, each a list of parts (scalars and collections), its
-    brackets, and whether a line may wrap after its opening bracket."""
+    """A flow collection: its items, each a list of parts (scalars and collections), and its
+    brackets."""
 
     items: list
     open: str = "["
     close: str = "]"
-    wraps: bool = True
 
 
 class _Emitter:
@@ -731,7 +655,7 @@ class _Emitter:
         for i, item in enumerate(seq.items):
             if i:
                 self.write(",")
-            if self.column > self.width and (i or seq.wraps):
+            if self.column > self.width:
                 self.indent(indent)
             elif i:
                 self.write(" ")
@@ -751,8 +675,8 @@ def _line(prefix: str, parts, indent: int) -> str:
     return emitter.text() + "\n"
 
 
-def _map(pairs, wraps: bool = True) -> _Seq:
-    return _Seq([[f"{k}:{_HARD}", *v] for k, v in pairs], "{", "}", wraps)
+def _map(pairs) -> _Seq:
+    return _Seq([[f"{k}:{_HARD}", *v] for k, v in pairs], "{", "}")
 
 
 def _hard(text: str) -> str:
@@ -764,34 +688,17 @@ def _binding(value, where: str = "flow") -> list:
     (a command or a slot's default, whose expressions are always quoted)."""
     # pylint: disable=too-many-return-statements
     if isinstance(value, Expr):
-        quoted = where == "cmd" or value.quoted or where == "flow" and "," in value.text
+        quoted = where == "cmd" or where == "flow" and "," in value.text
         return [f"'{value.text}'" if quoted else value.text]
     if isinstance(value, Code):
         return [_hard(_code.inline(value.statements))]
     if isinstance(value, Program):
         return [_program(value)]
-    if isinstance(value, Bound):
-        return [*_binding(value.expr, where), _HARD, _bag(value.bag)]
-    if isinstance(value, Shape):
-        return [value.name] + ([" ", _bag(value.bag)] if value.bag else [])
-    if isinstance(value, Run) and isinstance(value.program, Call):
-        return [f"{value.kind}:{value.program}"]
     if isinstance(value, Run):
         return [value.kind, _program(value.program)]
     if isinstance(value, Instrument):
         return [_map((k, _binding(v)) for k, v in value.fields)]
     return [_hard(str(value))]
-
-
-def _bag(bag) -> _Seq:
-    def item(value):
-        return (
-            [_Seq([[str(x)] for x in value], wraps=False)]
-            if isinstance(value, tuple)
-            else [str(value)]
-        )
-
-    return _map(((k, item(v)) for k, v in bag), wraps=False)
 
 
 def _program(program: Program) -> _Seq:
@@ -803,10 +710,6 @@ def _program(program: Program) -> _Seq:
 def _command(key: str, value) -> list:
     if key == "legato":
         return ["!legato"]
-    if key == "filter":
-        return ["!filter:none"]
-    if key == "set":
-        return [_hard(f"!set {value[0]} {value[1]}")]
     if isinstance(value, tuple) and not isinstance(value, (Call, Run)):
         return [f"!{key}:{value[0]}/{value[1]}"]
     return [f"!{key}:", *_binding(value, "cmd")]
@@ -856,8 +759,6 @@ def _header(head: Header) -> list:
         lines.append(f"voices: {head.voices}\n")
     if head.tempo is not None:
         lines.append(f"tempo: {_flat(head.tempo)}\n")
-    if head.hold is not None:
-        lines.append(f"hold: {_flat(list(head.hold))}\n")
     if head.slots is not None:
         cells = [(c, [(s.name, _slot(s)) for s in slots]) for c, slots in head.slots]
         lines.append(f"slots: {_flat(cells)}\n".replace(_HARD, " "))
@@ -868,19 +769,19 @@ def _header(head: Header) -> list:
     return lines
 
 
-def _template(key: str, body, indent: int) -> list:
-    pad = " " * indent
+def _template(key: str, body) -> list:
     if isinstance(body, Code):
-        lines = _code.printed(body.statements).splitlines(keepends=True)
-        return [f"{pad}{key}: |\n"] + [f"{pad}  {s}" for s in lines]
-    return [_line(f"{pad}{key}: ", _binding(body, "block"), indent)]
+        return [f"  {key}: |\n"] + [f"    {_code.line(s)}\n" for s in body.statements]
+    return [_line(f"  {key}: ", _binding(body, "block"), 2)]
 
 
-def _record(kind: str, name: str, value, indent: int = 8) -> list:
-    if kind == "mod":
-        return _template(name, value, indent)
-    parts = [_events(value)] if kind == "phrase" else _binding(value, "block")
-    return [_line(f"{' ' * indent}{name}: ", parts, indent)]
+def _section(section: Section, indent: int) -> list:
+    pad = " " * indent
+    lines = [f"{pad}{section.kind}:\n"]
+    for name, value in section.records:
+        parts = [_events(value)] if section.kind == "phrase" else _binding(value, "block")
+        lines.append(_line(f"{pad}  {name}: ", parts, indent + 2))
+    return lines
 
 
 def printed(doc: Document) -> str:
@@ -897,11 +798,9 @@ def _lines(doc: Document) -> list:
     if doc.mods:
         lines.append("mod:\n")
         for key, body in doc.mods:
-            lines += _template(key, body, 2)
+            lines += _template(key, body)
     for section in doc.defs:
-        lines.append(f"{section.kind}:\n")
-        for name, value in section.records:
-            lines += _record(section.kind, name, value, 2)
+        lines += _section(section, 0)
     if doc.init is not None:
         lines.append(_line("init: ", [_events(doc.init)], 0))
     lines.append("song:\n")
@@ -912,9 +811,7 @@ def _lines(doc: Document) -> list:
             continue
         lines.append("  - def:\n")
         for section in row.defs:
-            lines.append(f"      {section.kind}:\n")
-            for name, value in section.records:
-                lines += _record(section.kind, name, value)
+            lines += _section(section, 6)
         lines.append(_line("    play: ", plays, 4))
     lines.append("  - end\n" if doc.loop is None else f"  - {{loop: {doc.loop}}}\n")
     return lines
