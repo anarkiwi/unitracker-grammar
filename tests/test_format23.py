@@ -246,3 +246,28 @@ def test_a_count_of_two_digits_reads():
     text = doc("phrase:\n p1:[C4,[D]x23]\nsection:\n s1:[play:[p1,p1,p1]]\n", " - s1x23\n - end\n")
     model = read(text)
     assert printed(model) == text and model.rows[0] == Part("s1", 23)
+
+
+@pytest.mark.parametrize(
+    "body, song",
+    [
+        ("ins:\n i1:t(40,8)\n t(s,q):{ad:9,sr:q,pw:glide(s)}\nphrase:\n p1:[C4.i1,-,E.i1]\n", None),
+        (
+            "phrase:\n p1:[C4]\n t(x,y):[x.i1,-,y,E4]\n p2:t(G1,f1)\n",
+            " - play:[p2,p1,p2]\n - end\n",
+        ),
+    ],
+)
+def test_a_call_record_and_its_template_both_at_their_first_use(body, song):
+    text = doc(body, *([song] if song else []))
+    used = printed(first_use(read(text)))
+    assert "=t(" in used and printed(read(used)) == used
+    assert sorted(core_text(used).splitlines()) == sorted(core_text(text).splitlines())
+
+
+def test_a_chord_whose_name_ends_in_a_digit_is_no_note():
+    text = doc(
+        "ctrl:\n ar(a,b,c):[{note:+a},{note:+b},{note:+c},end]\n c1:[{run:ar(dom7)},end]\n"
+        "phrase:\n p1:[C4]\n"
+    )
+    assert "c1:[{run:ar(4,7,10)},end]" in core_text(text)

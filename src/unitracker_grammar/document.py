@@ -112,10 +112,13 @@ def _argument(text: str):
     return Signed(text) if text[0] in "+-" else int(text)
 
 
+_WRITTEN_NOTE = re.compile(r"[A-Gacdfg]-?\d+")
+
+
 def _arguments(text: str) -> tuple:
     """The arguments of a call's ``(...)``: a phrase template's notes absolute (``C#4``)."""
     args = [a for a in text[text.index("(") + 1 : -1].split(",") if a]
-    if args and args[0][0] in "ABCDEFGacdfg" and args[0][-1].isdigit():
+    if args and _WRITTEN_NOTE.fullmatch(args[0]):
         return tuple(absolute(a) for a in args)
     return tuple(_argument(a) for a in args)
 
@@ -466,7 +469,10 @@ def _args(args: tuple) -> str:
 
 
 def _body(value: tuple, kind: str) -> str:
-    """A phrase's events or its template's call, or a section's items."""
+    """A phrase's events, its template's call or that template at its first use, or a section's
+    items."""
+    if isinstance(value, Def):
+        return _defined(value, "flow")
     if isinstance(value, Call):
         return value.name + _args(value.args)
     return _seq(_item(i) for i in value) if kind == "section" else _events(value)

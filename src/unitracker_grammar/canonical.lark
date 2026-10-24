@@ -204,12 +204,12 @@ keep_filter: KEEP_FILTER |
 // referenced, a template's signature and "=" before its body, then its call's arguments; a
 // program template's body is a program, after its kind where a run starts it -------------
 
-use_ins: DEF_INS (instrument | CALL)
+use_ins: DEF_INS (instrument | CALL | use_template)
 use_restart: DEF_RESTART program
 use_ctrl: DEF_CTRL program
 use_pw: DEF_PW modulation
 use_filter: DEF_FILTER modulation
-use_phrase: DEF_PHRASE (phrase | PHRASE_CALL)
+use_phrase: DEF_PHRASE (phrase | PHRASE_CALL | use_template)
 use_section: DEF_SECTION section
 // a phrase template's call takes notes, each with its octave
 use_template: DEF_SIG (asm | qexpr | program | run_program | instrument) ARGS | DEF_SIG phrase NOTE_ARGS
