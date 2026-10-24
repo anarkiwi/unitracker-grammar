@@ -235,3 +235,8 @@ def test_an_instrument_or_phrase_record_may_be_a_template_call():
     out = core_text(text)
     assert " i1:{ad:9,ctrl:ar(3,7)}\n" in out and " i2:{ad:1,ctrl:ar(4,7)}\n" in out
     assert " p1:[C4.i1,-]\n" in out and " p2:[D4.i1,-]\n" in out
+
+
+def test_an_integer_template_body_at_its_first_use_stays_quoted():
+    text = doc("phrase:\n p1:[C4 pw:k()='2048'()]\n")
+    assert printed(read(text)) == text

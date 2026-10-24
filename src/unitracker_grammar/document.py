@@ -324,7 +324,8 @@ class _ToModel(Transformer):
     @staticmethod
     def use(children):
         args = _arguments(children[2]) if len(children) > 2 else None
-        return Def(str(children[0])[:-1], _value(children[1]), args)
+        body = children[1] if args is not None else _value(children[1])
+        return Def(str(children[0])[:-1], body, args)
 
     @staticmethod
     def instrument(children):
