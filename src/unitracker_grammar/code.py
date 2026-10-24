@@ -3,9 +3,12 @@
 A routine is a tuple of statements, each a :class:`Label` or an :class:`Op`, whose operand is
 ``None`` (implied), an :class:`Imm`, a :class:`Mem` or, for a branch or ``jmp``, a label's name;
 :func:`printed` is its one text. A template's key may be its signature, ``name(a, b)``, which a
-:class:`Call`, ``name(1,-2)``, binds.
+:class:`Call`, ``name(1,-2)``, binds. A program record (``restart``, ``ctrl``, ``pw``, ``filter``)
+may be a template too, keyed by a signature, whose rows read its parameters where they take an
+integer (:func:`programs`).
 """
 
+import ast
 import functools
 import re
 from typing import NamedTuple
@@ -49,7 +52,8 @@ class CodeError(ValueError):
 
 
 class Call(NamedTuple):
-    """A binding of a template: its name and its arguments, in its signature's order."""
+    """A binding of a template: its name and its arguments, in its signature's order, each an
+    integer or, in a program template's rows, one of its parameters' names."""
 
     name: str
     args: tuple[int, ...] = ()
@@ -64,7 +68,7 @@ _CALL = re.compile(r"([a-z][a-z0-9_]*)\((.*)\)")
 def call(text: str) -> Call:
     """The :class:`Call` of a ``CALL`` text, ``name(1,-2,3)`` or ``name()``."""
     name, args = _CALL.fullmatch(text).groups()
-    return Call(name, tuple(int(a) for a in args.split(",")) if args else ())
+    return Call(name, tuple(a if a[0].isalpha() else int(a) for a in args.split(",") if args))
 
 
 def signature(text: str) -> tuple[str, tuple[str, ...]]:
@@ -338,3 +342,74 @@ def reads(body: Tree) -> tuple[str, ...]:
     if body.data == "code":
         return params(Statements().transform(body))
     return tuple(sorted(expr.params(expr.Nodes().transform(body))))
+
+
+PROGRAM_KINDS = ("restart", "ctrl", "pw", "filter")
+_PROGRAM_KEYS = {k.upper(): k for k in PROGRAM_KINDS} | {
+    f"{k.upper()}_SIG": k for k in PROGRAM_KINDS
+}
+
+
+def _reads(node: Tree, out: list, skip=frozenset(), declared=None) -> list:
+    """``out`` extended by the parameters ``node`` reads in order (see :func:`program_reads`),
+    the subtrees whose ids are in ``skip`` left out; a cell value's names are a template's
+    reads only where its ``declared`` parameters are given."""
+    for child in node.children:
+        if isinstance(child, Token):
+            if child.type == "PARAM" and node.data != "factor":
+                out.append(str(child))
+            elif child.type == "REL_PARAM":
+                out.append(child[1:])
+            elif child.type == "CALL":
+                out.extend(a for a in call(child).args if isinstance(a, str))
+        elif id(child) in skip:
+            continue
+        elif child.data == "fexpr" and node.data in ("cell_value", "modulation"):
+            value = expr.Nodes().transform(child)
+            if declared is None or not expr.params(value):
+                continue
+            if isinstance(value, ast.Name):
+                out.append(value.id)
+            elif expr.params(value) & set(declared):
+                raise CodeError(f"{expr.printed(value)}: a parameter is a whole cell value")
+        elif child.data == "run_program" and (inner := _reads(child, [], skip)):
+            raise CodeError(f"an inline program reads no parameter, {inner[0]}")
+        else:
+            _reads(child, out, skip, declared)
+    return out
+
+
+def program_reads(body: Tree, declared=None) -> tuple[str, ...]:
+    """The parameters a program's parse tree (a ``program`` or a pulse or filter record's
+    ``modulation``) reads, in first-use order: a ``PARAM`` where a row takes an integer, a
+    relative note's ``+p`` or ``-p``, a call's named arguments and, in a template of
+    ``declared`` parameters, a cell value that is a name alone; CodeError where a cell
+    expression names one of ``declared`` inside a larger expression, or an inline program reads
+    one."""
+    return tuple(dict.fromkeys(_reads(body, [], declared=declared)))
+
+
+def programs(tree: Tree) -> dict[str, tuple[str, tuple[str, ...]]]:
+    """``{name: (kind, parameters)}`` of a document parse tree's program templates, checked:
+    each declares what its rows read (:func:`program_reads`), a program keyed by its name reads
+    none, nothing outside a program's records reads one, and no two templates, of programs or
+    modulators, share a name."""
+    out, bodies = {}, set()
+    for node in tree.find_data("section"):
+        for key, body in zip(node.children, node.children[1:]):
+            if not (isinstance(key, Token) and key.type in _PROGRAM_KEYS):
+                continue
+            bodies.add(id(body))
+            if key.type.endswith("_SIG"):
+                name, declared = declare(key, program_reads(body, signature(key)[1]))
+                if name in out:
+                    raise CodeError(f"program template {name} is defined twice")
+                out[name] = (_PROGRAM_KEYS[key.type], declared)
+            elif used := program_reads(body):
+                raise CodeError(f"{key}: reads {list(used)} and declares no parameter")
+    if outside := _reads(tree, [], bodies):
+        raise CodeError(f"parameters {list(dict.fromkeys(outside))} read outside a template")
+    mods = {_CALL.fullmatch(k).group(1) if "(" in k else str(k) for k, _ in _records(tree)}
+    if clash := sorted(out.keys() & mods):
+        raise CodeError(f"{clash} name both a program and a modulator template")
+    return out

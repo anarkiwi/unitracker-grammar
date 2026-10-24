@@ -3,7 +3,9 @@
 import re
 
 import pytest
+from lark import Token
 
+from test_canonical import PROGRAMS
 from unitracker_grammar import CanonicalError, parse
 from unitracker_grammar.code import (
     LEGAL,
@@ -23,6 +25,8 @@ from unitracker_grammar.code import (
     op,
     params,
     printed,
+    program_reads,
+    programs,
     read,
     signature,
     signatures,
@@ -186,6 +190,7 @@ def test_a_state_variable_is_declared_once_across_cells():
 
 def test_a_call_is_its_name_and_integer_arguments():
     assert call("vib(0,-4,+32)") == Call("vib", (0, -4, 32))
+    assert call("pt(b,-2,c)") == Call("pt", ("b", -2, "c")) and str(call("pt(b,-2)")) == "pt(b,-2)"
     assert call("note()") == Call("note") and str(Call("vib", (0, -4))) == "vib(0,-4)"
 
 
@@ -232,3 +237,52 @@ def test_a_document_s_signatures_and_templates_are_in_its_rows_and_its_mod_secti
 def test_a_signature_other_than_the_body_s_parameters_is_refused(wrong, right, read_with):
     with pytest.raises(CodeError, match=re.escape(f"{right}: undeclared")):
         read_with(parse(TOP.replace(wrong, right)))
+
+
+def test_a_document_s_program_templates_are_their_kinds_and_parameters():
+    tree = parse(PROGRAMS)
+    assert programs(tree) == {
+        "hr": ("restart", ("h", "ad", "sr")),
+        "arp": ("ctrl", ("a", "b")),
+        "pt": ("pw", ("b",)),
+        "fl": ("filter", ("c",)),
+    }
+    bodies = {
+        str(k): b
+        for s in tree.find_data("section")
+        for k, b in zip(s.children, s.children[1:])
+        if isinstance(k, Token)
+    }
+    assert program_reads(bodies["arp(a, b)"]) == ("a", "b")
+    assert program_reads(bodies["fl(c)"], ("c",)) == ("c",)
+    assert not program_reads(bodies["fl(c)"]) and not program_reads(bodies["c1"])
+
+
+@pytest.mark.parametrize(
+    "old, new, match",
+    [
+        ("arp(a, b): [", "arp(a, b, d): [", r"arp\(a, b, d\): undeclared \[\], unread \['d'\]"),
+        ("pt(b): [", "pt(): [", r"pt\(\): undeclared \['b'\]"),
+        ("fl(c): c", "fl(): c", r"fl\(\): undeclared \['c'\]"),
+        ("route: 3,", "route: m,", r"c1: reads \['m'\] and declares no parameter"),
+        ("pw1: pt(4)", "pw1: pt(q)", r"pw1: reads \['q'\]"),
+        ("ctrl: arp(7,-4)", "ctrl: arp(7,z)", r"parameters \['z'\] read outside a template"),
+        ("!run:ctrl:arp(1,2)", "!run:ctrl:arp(1,y)", r"\['y'\] read outside"),
+        ("{pw: walk(b)}", "{pw: 2*b}", "2\\*b: a parameter is a whole cell value"),
+        ("run: fl(a)}", "run: ctrl[{ctrl: a}, end]}", "an inline program reads no parameter, a"),
+        ("fl(c): c", "arp(c): c", "program template arp is defined twice"),
+        ("fl(c): c", "walk(c): c", r"\['walk'\] name both a program and a modulator template"),
+    ],
+)
+def test_program_templates_outside_the_rules_are_refused(old, new, match):
+    """A signature other than what the rows read, a named program or anything outside a
+    program's records reading a parameter, a parameter inside a larger cell expression or an
+    inline program, and a template name used twice."""
+    assert old in PROGRAMS
+    with pytest.raises(CodeError, match=match):
+        programs(parse(PROGRAMS.replace(old, new)))
+
+
+def test_a_cell_expression_naming_no_parameter_is_no_template_s_concern():
+    tree = parse(PROGRAMS.replace("{pw: walk(b)}", "{pw: 2*q, res: b}"))
+    assert programs(tree)["pt"] == ("pw", ("b",))

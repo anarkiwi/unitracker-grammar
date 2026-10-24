@@ -27,6 +27,11 @@
 // (C4.{ad: 9}), a phrase in a play entry ([C4, -]+2), and, where a cell is bound, an anonymous
 // code body on one line (asm{lda v; sta v+1; rts}); a command and a slot's default also bind a
 // quoted expression ('v + 40').
+// A program record, restart, ctrl, pw or filter, may be a template keyed by a SIGNATURE
+// (arp(a, b), a kind's *_SIG token), whose rows read its parameters where they take an integer
+// (ad: a), as a relative note (note: +a, note: -a), as a cell value alone (pw: b) and as a
+// call's argument (pw: walk(b)); a CALL binds it wherever a program name stands (ctrl: arp(7,4),
+// restart: hr(2,9,220)), in run: and !run: bare or after its kind (run: ctrl:arp(7,4)).
 
 start: "unitracker: " VERSION _NL meta _NL (clock _NL)? (voices _NL)? (tempo _NL)? (hold _NL)? (slots _NL)? (order _NL)? (state _NL)? tables? mods? (init _NL)? "song:" _NL row+ ending
 
@@ -87,11 +92,11 @@ play: (PHRASE | phrase) SIGNED? | CONT | END
 
 // ---- definitions: each record type once per row, names in first-use order --------------
 
-section: "      restart:" _NL ("        " RESTART ": " program _NL)+
+section: "      restart:" _NL ("        " (RESTART | RESTART_SIG) ": " program _NL)+
        | "      ins:" _NL ("        " INS ": " instrument _NL)+
-       | "      ctrl:" _NL ("        " CTRL ": " program _NL)+
-       | "      pw:" _NL ("        " PW ": " modulation _NL)+
-       | "      filter:" _NL ("        " FILTER ": " modulation _NL)+
+       | "      ctrl:" _NL ("        " (CTRL | CTRL_SIG) ": " program _NL)+
+       | "      pw:" _NL ("        " (PW | PW_SIG) ": " modulation _NL)+
+       | "      filter:" _NL ("        " (FILTER | FILTER_SIG) ": " modulation _NL)+
        | "      mod:" _NL ("        " (NAME | SIGNATURE) _template)+
        | "      x:" _NL ("        " X ": " expr (" " param_bag)? _NL)+
        | "      phrase:" _NL ("        " PHRASE ": " phrase _NL)+
@@ -102,7 +107,7 @@ _template: ": " expr _NL | ": |" _NL code
 instrument: _LC ins_ad "}"
 ins_ad: "ad: " (INT) (_SEP ins_sr)? | ins_sr
 ins_sr: "sr: " (INT) (_SEP ins_ctrl)? | ins_ctrl
-ins_ctrl: "ctrl: " (CTRL | program) (_SEP ins_pw)? | ins_pw
+ins_ctrl: "ctrl: " (CTRL | CALL | program) (_SEP ins_pw)? | ins_pw
 ins_pw: SLOT? "pw: " (PW | X | NONE | modulation) (_SEP ins_pw)? | ins_filter
 ins_filter: SLOT? "filter: " (FILTER | X | NONE | modulation) (_SEP ins_filter)? | ins_freq
 ins_freq: SLOT? "freq: " (X | NONE | CALL | asm | fexpr | bound) (_SEP ins_freq)? | ins_fn
@@ -112,7 +117,7 @@ pname_val: NAME _BSC (SIGNED | INT | NAME | pname_list)
 pname_list: "[" (SIGNED | INT) (_SEP (SIGNED | INT))* "]"
 _WB: /(?: |\n +)/          // a flow space that may be a line wrap
 _BSC: /:(?: |\n +)/        // a bag's colon, a space or a line wrap before its value
-ins_restart: "restart: " (RESTART | program)
+ins_restart: "restart: " (RESTART | CALL | program)
 
 // a program: its rows in the order they run, then its end or its loop
 program: _LB (row_ _SEP)* (END | _LC LOOP INT "}") "]"
@@ -122,28 +127,28 @@ modulation: program | CALL | asm | fexpr | bound
 bound: fexpr " " param_bag
 
 row_: _LC "}" | _LC row_wait "}"
-row_wait: "wait: " (INT) (_SEP row_hold)? | row_hold
-row_hold: "hold: " (INT) (_SEP row_ctrl)? | row_ctrl
+row_wait: "wait: " (INT | PARAM) (_SEP row_hold)? | row_hold
+row_hold: "hold: " (INT | PARAM) (_SEP row_ctrl)? | row_ctrl
 row_ctrl: "ctrl: " (ctrl_value) (_SEP row_gate)? | row_gate
-row_gate: "gate: " (INT) (_SEP row_note)? | row_note
+row_gate: "gate: " (INT | PARAM) (_SEP row_note)? | row_note
 row_note: "note: " (note_value) (_SEP row_ad)? | row_ad
-row_ad: "ad: " (INT) (_SEP row_sr)? | row_sr
-row_sr: "sr: " (INT) (_SEP row_pw)? | row_pw
+row_ad: "ad: " (INT | PARAM) (_SEP row_sr)? | row_sr
+row_sr: "sr: " (INT | PARAM) (_SEP row_pw)? | row_pw
 row_pw: SLOT? "pw: " (cell_value) (_SEP row_pw)? | row_cut
 row_cut: SLOT? "cut: " (cell_value) (_SEP row_cut)? | row_res
-row_res: "res: " (INT) (_SEP row_route)? | row_route
+row_res: "res: " (INT | PARAM) (_SEP row_route)? | row_route
 row_route: "route: " (route_value) (_SEP row_mode)? | row_mode
-row_mode: "mode: " (INT) (_SEP row_freq)? | row_freq
+row_mode: "mode: " (INT | PARAM) (_SEP row_freq)? | row_freq
 row_freq: SLOT? "freq: " (cell_value) (_SEP row_freq)? | row_run
 row_run: "run: " (program_name | run_program) (_SEP row_filter)? | row_filter
 row_filter: "filter: " (NONE) (_SEP row_vol)? | row_vol
-row_vol: "vol: " (INT)
+row_vol: "vol: " (INT | PARAM)
 
-ctrl_value: INT | CTRLMASK
-note_value: SIGNED | NOTE
+ctrl_value: INT | CTRLMASK | PARAM
+note_value: SIGNED | NOTE | REL_PARAM
 cell_value: fexpr | bound | CALL | asm | X | NONE | HOLD
-route_value: INT | ROUTE_ADD | ROUTE_ADD_MASK INT | ROUTE_REMOVE | ROUTE_REMOVE_MASK INT "'"
-program_name: CTRL | PW | FILTER
+route_value: INT | PARAM | ROUTE_ADD | ROUTE_ADD_MASK INT | ROUTE_REMOVE | ROUTE_REMOVE_MASK INT "'"
+program_name: CTRL | PW | FILTER | RUN_KIND? CALL
 // an inline program after its kind
 run_program: PROGRAM_KIND program
 
@@ -201,6 +206,7 @@ META_KEY: "title" | "author" | "released"
 HOLD_CELL: /(?:ctrl\.)?(?:freq|pw|cut)/
 CELL: /freq|pw|cut/
 PROGRAM_KIND: /(?:ctrl|pw|filter)(?=\[)/
+RUN_KIND: /(?:ctrl|pw|filter):/
 _ASM.2: "asm{"
 PHASE: "events" | "ctrl" | "pulse" | "filter" | "freq" | "pw" | "cut" | "read"
 SLOT: /[a-z][a-z0-9_]*\./
@@ -232,7 +238,17 @@ STATE_SIZE: /[12]\b/
 TABLE_BYTE: /(?:F|[A-EG-MO-Z][A-Za-z]*)\.(?:lo|hi)/
 // format 1.23: a template's key with its parameters, none a code symbol, and a binding's call
 SIGNATURE: /[a-z][a-z0-9_]*\((?:(?!(?:v|phi|nn|ne|a|x|y)\b)[a-z][a-z0-9_]*(?:, (?!(?:v|phi|nn|ne|a|x|y)\b)[a-z][a-z0-9_]*)*)?\)/
-CALL: /(?!(?:abs|min|max)\()[a-z][a-z0-9_]*\((?:[+-]?\d+(?:,[+-]?\d+)*)?\)/
+// a call's argument is an integer, or in a program template's rows one of its parameters
+CALL: /(?!(?:abs|min|max)\()[a-z][a-z0-9_]*\((?:(?:[+-]?\d+|[a-z][a-z0-9_]*)(?:,(?:[+-]?\d+|[a-z][a-z0-9_]*))*)?\)/
+// a program template's key, per kind: its parameters are none of the names a cell value means
+// otherwise nor a record's name; a row reads one where it takes an integer, +p or -p a relative
+// note
+_PROGRAM_SIG: /(?!(?:x|pw|[cfipr])\d+\()[a-z][a-z0-9_]*\((?:(?!(?:v|n|none|hold|(?:x|pw|[cfipr])\d+)\b)[a-z][a-z0-9_]*(?:, (?!(?:v|n|none|hold|(?:x|pw|[cfipr])\d+)\b)[a-z][a-z0-9_]*)*)?\)/
+RESTART_SIG: _PROGRAM_SIG
+CTRL_SIG: _PROGRAM_SIG
+PW_SIG: _PROGRAM_SIG
+FILTER_SIG: _PROGRAM_SIG
+REL_PARAM: /[+-](?!(?:x|pw|[cfipr])\d+\b)[a-z][a-z0-9_]*/
 IMM_INT: /0|[1-9]\d*/
 OFFSET: /\+[1-9]\d*/
 INDEX: ",x" | ",y"

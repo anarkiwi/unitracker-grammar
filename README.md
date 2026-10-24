@@ -30,7 +30,13 @@ program after its kind in `run:` and `!run:` (`run: pw[{pw: 5}, end]`, `!run:ctr
 end]`), an instrument after an event's note (`C4.{ad: 9, sr: 240}`), a phrase with its transpose
 in a play entry (`play: [[C4, -*3]+2, ~]`) and, wherever a cell is bound, an anonymous code
 body on one line (`asm{lda v; up:; adc #1; sta v; bne up; rts}`, statements separated by `; `);
-a command and a slot's default also bind a quoted expression (`!pw:'v + 40'`). Format 1.21's
+a command and a slot's default also bind a quoted expression (`!pw:'v + 40'`). A program record
+(`restart`, `ctrl`, `pw`, `filter`) may be a template keyed by its signature
+(`arp(a, b): [{ctrl: 65, note: +a}, {wait: a, note: -b}, {loop: 0}]`), its rows reading its
+parameters where they take an integer, as a relative note (`+a`, `-a`), as a cell value alone
+(`pw: b`) and as a call's argument (`pw: walk(b)`); a call binds it wherever a program name
+stands: an instrument's `ctrl`, `pw`, `filter` and `restart` fields (`restart: hr(2,9,220)`),
+and `run:` and `!run:`, bare or after its kind (`run: ctrl:arp(7,4)`, `!run:arp(7,4)`). Format 1.21's
 `hold` line names, per cell, the events its modulators hold on (unitracker-player's
 [semantics](https://github.com/anarkiwi/unitracker-player/blob/main/docs/semantics.md)).
 
@@ -104,12 +110,23 @@ code.declare("vib(c)", ("c",), {"t"})      # the signature, if it declares what 
 code.call("vib(0,-4,32)")                  # Call(name='vib', args=(0, -4, 32))
 code.inline(code.read("lda v\nrts\n"))     # 'asm{lda v; rts}', an anonymous body's one text
 code.signatures(parse(text))               # {name: parameters} of its signed templates, checked
+code.programs(parse(text))                 # {name: (kind, parameters)} of its program templates
 ```
+
+`code.programs` checks a document's program templates: each signature declares exactly what
+its rows read (`code.program_reads(body, declared)`, in first-use order), a program keyed by its
+name and everything outside the program records read no parameter, a parameter is never part of
+a larger cell expression nor read by an inline program, and no name is two templates', of
+programs or modulators. `code.call` reads a parameter argument as its name
+(`call("pt(b,2)")` is `Call("pt", ("b", 2))`).
 
 In the parse tree a signed record's key is a `SIGNATURE` token (`vib(l, c, s)`) where a plain
 one's is a `NAME`, a call is one `CALL` token (`vib(0,-4,32)`) where a binding may be a name or
 an expression, and the top-level section is a `mods` tree of `SIGNATURE` tokens each followed by
-its `expr` or `code` tree; `code.templates` keys each by its bare name. An inline program is a
+its `expr` or `code` tree; `code.templates` keys each by its bare name. A program template's key
+is a `RESTART_SIG`, `CTRL_SIG`, `PW_SIG` or `FILTER_SIG` token, a parameter a row reads a
+`PARAM` (a `REL_PARAM`, `+a`, in a note) outside any `factor`, and a run's kind before a call a
+`RUN_KIND` token (`ctrl:`) in its `program_name`. An inline program is a
 `run_program` (a `PROGRAM_KIND` token, then its `program`), an inline instrument an `instrument`
 where an `INS` token may stand, an inline phrase a `phrase` where a `PHRASE` token may, an
 anonymous body an `asm` tree of `code_*` statements (`code.Statements` reads it as a `code`),

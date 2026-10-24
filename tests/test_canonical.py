@@ -741,7 +741,6 @@ def test_a_call_binds_a_cell_wherever_a_template_or_instance_did():
     "defs",
     [
         INS + "{pw: walk(1, 2)}\n",
-        INS + "{pw: walk(a)}\n",
         INS + "{pw: walk(1,)}\n",
         INS + "{pw: walk (1)}\n",
         INS + "{pw: Walk(1)}\n",
@@ -750,8 +749,8 @@ def test_a_call_binds_a_cell_wherever_a_template_or_instance_did():
     ],
 )
 def test_other_call_spellings_are_refused(defs):
-    """A space in or before the arguments, an argument that is no integer, a trailing comma, a
-    name that is no NAME and a call where no cell is bound."""
+    """A space in or before the arguments, a trailing comma, a name that is no NAME and a call
+    where no cell is bound."""
     with pytest.raises(CanonicalError):
         parse(doc(defs))
 
@@ -820,3 +819,99 @@ def test_other_inline_spellings_are_refused(text):
     an instrument outside the instrument spelling."""
     with pytest.raises(CanonicalError):
         parse(text)
+
+
+PROGRAMS = (
+    "unitracker: 1.23\nmeta: {title: T}\nmod:\n  walk(s): v + s\nsong:\n  - def:\n"
+    "      ins:\n        i1: {ad: 9, ctrl: arp(7,-4), pw: pt(3), filter: fl(5),"
+    " restart: hr(2,9,220)}\n"
+    "      restart:\n        hr(h, ad, sr): [{hold: h, gate: 0, ad: ad, sr: sr}, end]\n"
+    "      ctrl:\n        arp(a, b): [{ctrl: a, note: +a}, {wait: a, gate: b, note: -b,"
+    " run: pw:pt(b)}, {run: fl(a)}, {loop: 0}]\n"
+    "        c1: [{ctrl: 129^8, route: 3, freq: v + 1}, end]\n"
+    "      pw:\n        pt(b): [{pw: walk(b)}, {pw: b, res: b, route: b, mode: b, vol: b}, end]\n"
+    "        pw1: pt(4)\n      filter:\n        fl(c): c\n"
+    "      phrase:\n        p1: [C4.i1!run:ctrl:arp(1,2), -!run:arp(3,4), D4.{ctrl: arp(0,0)}]\n"
+    "    play: [p1]\n  - end\n"
+)
+
+
+def test_a_program_record_may_be_a_template_whose_rows_read_its_parameters():
+    """Each program kind's record may be keyed by a signature; a row reads a parameter where it
+    takes an integer, as a relative note's +p or -p, as a cell value and as a call's argument,
+    and a call binds a template wherever a program name stands, in run: bare or after its
+    kind."""
+    tree = parse(PROGRAMS)
+    keys = [
+        (t.type, str(t))
+        for s in tree.find_data("section")
+        for t in s.children
+        if isinstance(t, Token) and t.type.endswith("_SIG")
+    ]
+    assert keys == [
+        ("RESTART_SIG", "hr(h, ad, sr)"),
+        ("CTRL_SIG", "arp(a, b)"),
+        ("PW_SIG", "pt(b)"),
+        ("FILTER_SIG", "fl(c)"),
+    ]
+    reads = [
+        (n.data, str(t))
+        for n in tree.iter_subtrees_topdown()
+        if n.data != "factor"
+        for t in n.children
+        if isinstance(t, Token) and t.type in ("PARAM", "REL_PARAM")
+    ]
+    assert reads[:6] == [
+        ("row_hold", "h"),
+        ("row_ad", "ad"),
+        ("row_sr", "sr"),
+        ("ctrl_value", "a"),
+        ("note_value", "+a"),
+        ("row_wait", "a"),
+    ]
+    assert [d for d, _ in reads[6:]] == [
+        "row_gate",
+        "note_value",
+        "row_res",
+        "route_value",
+        "row_mode",
+        "row_vol",
+    ]
+    names = [n.children for n in tree.find_data("program_name")]
+    assert [[(t.type, str(t)) for t in c] for c in names] == [
+        [("RUN_KIND", "pw:"), ("CALL", "pt(b)")],
+        [("CALL", "fl(a)")],
+        [("RUN_KIND", "ctrl:"), ("CALL", "arp(1,2)")],
+        [("CALL", "arp(3,4)")],
+    ]
+
+
+@pytest.mark.parametrize(
+    "old, new",
+    [
+        ("arp(a, b): [", "arp(a,b): ["),
+        ("arp(a, b): [", "arp(v, b): ["),
+        ("arp(a, b): [", "arp(a, n): ["),
+        ("fl(c): c", "fl(none): none"),
+        ("fl(c): c", "f2(c): c"),
+        ("fl(c): c", "fl(c1): c1"),
+        ("note: +a", "note: + a"),
+        ("note: +a", "note: a"),
+        ("{loop: 0}", "{loop: a}"),
+        ("route: 3", "route: + a"),
+        ("ctrl: 129^8", "ctrl: 129^a"),
+        ("run: pw:pt(b)", "run: pw: pt(b)"),
+        ("run: pw:pt(b)", "run: restart:hr(1,2,3)"),
+        ("!run:ctrl:arp(1,2)", "!run:ctrl:c1"),
+        ("pw: pt(3)", "pw: pt(3, 4)"),
+        ("arp(7,-4)", "arp(7, -4)"),
+    ],
+)
+def test_other_program_template_spellings_are_refused(old, new):
+    """A signature's parameters separated by ", " and none a name a cell value means otherwise
+    (v, n, none, hold) nor a record's; a relative note's sign before the name; a loop row, a
+    route's mask and a control mask literal; a run's kind joined to its call, and run's kinds
+    alone; a call's arguments unspaced."""
+    assert old in PROGRAMS
+    with pytest.raises(CanonicalError):
+        parse(PROGRAMS.replace(old, new))
