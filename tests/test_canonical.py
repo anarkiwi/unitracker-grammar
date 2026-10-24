@@ -527,3 +527,32 @@ def test_a_slot_prefix_and_a_bag_are_where_a_cell_is_bound_alone(defs):
     that is no NAME and an instance name as a parameter are refused."""
     with pytest.raises(CanonicalError):
         parse(doc(defs, SLOTS))
+
+
+ORDER = "order: [events, ctrl, pulse, filter, freq, pw, cut, read]\n"
+
+
+def test_the_order_line_names_the_phases_of_a_tick_after_the_slots_line():
+    tree = parse(doc("", SLOTS + ORDER))
+    assert [str(t) for t in first(tree, "order").children] == [
+        "events",
+        "ctrl",
+        "pulse",
+        "filter",
+        "freq",
+        "pw",
+        "cut",
+        "read",
+    ]
+    assert first(parse(doc("", "order: [read]\n")), "order")
+
+
+@pytest.mark.parametrize(
+    "head",
+    [ORDER + SLOTS, "order: []\n", "order: [events, fetch]\n", "order: [events,ctrl]\n"],
+)
+def test_other_order_spellings_are_refused(head):
+    """An order line before the slots line, an empty list, an unknown phase and a missing space
+    are refused."""
+    with pytest.raises(CanonicalError):
+        parse(doc("", head))

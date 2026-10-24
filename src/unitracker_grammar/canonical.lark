@@ -16,7 +16,7 @@
 // parameter bag; a binding is an instance or template by name, an expression, or (but in a
 // command) a template with its bag.
 
-start: "unitracker: " VERSION _NL meta _NL (clock _NL)? (voices _NL)? (tempo _NL)? (hold _NL)? (slots _NL)? tables? (init _NL)? "song:" _NL row+ ending
+start: "unitracker: " VERSION _NL meta _NL (clock _NL)? (voices _NL)? (tempo _NL)? (hold _NL)? (slots _NL)? (order _NL)? tables? (init _NL)? "song:" _NL row+ ending
 
 // ---- header: clock, voices and tempo only where they differ from PAL, 3 and 6 ---------------
 
@@ -42,6 +42,9 @@ slot: NAME ": " _LC slot_mod? "}"
 slot_mod: "mod: " NAME (_SEP slot_hold)? | slot_hold
 slot_hold: "hold: " events (_SEP slot_reset)? | slot_reset
 slot_reset: "reset: " events
+
+// format 1.22: the phases of a tick in the order they run, each over the voices in order
+order: "order: " _LB PHASE (_SEP PHASE)* "]"
 
 // the tables expressions index as T[k]: 0 outside the list
 tables: "tables:" _NL ("  " XTABLE ": " intlist _NL)+
@@ -155,6 +158,7 @@ VERSION: /\d+\.\d+/
 META_KEY: "title" | "author" | "released"
 HOLD_CELL: /(?:ctrl\.)?(?:freq|pw|cut)/
 CELL: /freq|pw|cut/
+PHASE: "events" | "ctrl" | "pulse" | "filter" | "freq" | "pw" | "cut" | "read"
 SLOT: /[a-z][a-z0-9_]*\./
 CMD_PW: /!(?:[a-z][a-z0-9_]*\.)?pw:/
 CMD_CUT: /!(?:[a-z][a-z0-9_]*\.)?cut:/
