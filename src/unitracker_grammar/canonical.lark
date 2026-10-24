@@ -19,7 +19,9 @@
 // a mod: template may instead be a code block, a 6502 routine over v, phi, nn, ne, its cell's
 // state variables and the tables' bytes, one canonical statement per line (code.py).
 // Its templates stand in one top-level mod: section after the tables (records at 2 spaces, code
-// lines at 4), each key a SIGNATURE, name(a, b) or name(), whose parameters a CALL, name(1,-2,3)
+// lines at 4), then its other definitions that are not song content, each kind a top-level
+// section (restart:, ins:, ctrl:, pw:, filter:, in that order, records at 2 spaces), a row's
+// def: keeping its phrases; each key a SIGNATURE, name(a, b) or name(), whose parameters a CALL, name(1,-2,3)
 // or name(), binds in order wherever a cell is bound; code reads the note table as F.lo, F.hi.
 // The grammar admits every version's forms: which a version plays is the player's to say.
 // A definition may stand inline at its use in place of its name: a program in run: and !run:
@@ -33,7 +35,24 @@
 // call's argument (pw: walk(b)); a CALL binds it wherever a program name stands (ctrl: arp(7,4),
 // restart: hr(2,9,220)), in run: and !run: bare or after its kind (run: ctrl:arp(7,4)).
 
-start: "unitracker: " VERSION _NL meta _NL (clock _NL)? (voices _NL)? (tempo _NL)? (hold _NL)? (slots _NL)? (order _NL)? (state _NL)? tables? mods? (init _NL)? "song:" _NL row+ ending
+start: "unitracker: " VERSION _NL meta _NL _from_clock? "song:" _NL row+ ending
+// the lines after meta, each optional, in this order: a chain of rules, each the lines from one
+// on, so that the parser tables stay linear in their number
+_from_clock: clock _NL _from_voices? | _from_voices
+_from_voices: voices _NL _from_tempo? | _from_tempo
+_from_tempo: tempo _NL _from_hold? | _from_hold
+_from_hold: hold _NL _from_slots? | _from_slots
+_from_slots: slots _NL _from_order? | _from_order
+_from_order: order _NL _from_state? | _from_state
+_from_state: state _NL _from_tables? | _from_tables
+_from_tables: tables _from_mods? | _from_mods
+_from_mods: mods _from_restart? | _from_restart
+_from_restart: top_restart _from_ins? | _from_ins
+_from_ins: top_ins _from_ctrl? | _from_ctrl
+_from_ctrl: top_ctrl _from_pw? | _from_pw
+_from_pw: top_pw _from_filter? | _from_filter
+_from_filter: top_filter _from_init? | _from_init
+_from_init: init _NL
 
 // ---- header: clock, voices and tempo only where they differ from PAL, 3 and 6 ---------------
 
@@ -78,6 +97,14 @@ intlist: _LB INT (_SEP INT)* "]"
 
 // format 1.23: the templates, each an expression or a code block at 4 spaces
 mods: "mod:" _NL ("  " SIGNATURE (": " expr _NL | ": |" _NL top_code))+
+
+// format 1.23: the definitions that are not song content, each kind a top-level section after
+// the templates, records at 2 spaces, in this order; a row's def: keeps its phrases
+top_restart: "restart:" _NL ("  " (RESTART | RESTART_SIG) ": " program _NL)+ -> section
+top_ins: "ins:" _NL ("  " INS ": " instrument _NL)+ -> section
+top_ctrl: "ctrl:" _NL ("  " (CTRL | CTRL_SIG) ": " program _NL)+ -> section
+top_pw: "pw:" _NL ("  " (PW | PW_SIG) ": " modulation _NL)+ -> section
+top_filter: "filter:" _NL ("  " (FILTER | FILTER_SIG) ": " modulation _NL)+ -> section
 
 // one event per voice: the state after init, a step of no duration before the first tick
 init: "init: " _LB event (_SEP event)* "]"

@@ -420,6 +420,8 @@ class _ToModel(Transformer):
         for c in children[1:]:
             if isinstance(c, SongRow):
                 body["rows"].append(c)
+            elif isinstance(c, Section):
+                body["defs"] = (*body.get("defs", ()), c)
             elif c[0] in ("tables", "mods", "init", "loop"):
                 body[c[0]] = c[1]
             else:

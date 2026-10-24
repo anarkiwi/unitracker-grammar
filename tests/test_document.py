@@ -318,3 +318,4 @@ def test_top_level_definitions_print_after_the_templates_at_two_spaces():
     text = printed(doc)
     assert "  note(): F(N)\nins:\n  i1: {ad: 9}\nctrl:\n  c1: [{ctrl: 65}, end]\ninit:" in text
     assert list(doc.records("ins")) == ["i1"] and doc.sections("ctrl")[0][0] is None
+    assert read(text) == doc and printed(read(text)) == text

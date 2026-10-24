@@ -822,15 +822,15 @@ def test_other_inline_spellings_are_refused(text):
 
 
 PROGRAMS = (
-    "unitracker: 1.23\nmeta: {title: T}\nmod:\n  walk(s): v + s\nsong:\n  - def:\n"
-    "      ins:\n        i1: {ad: 9, ctrl: arp(7,-4), pw: pt(3), filter: fl(5),"
-    " restart: hr(2,9,220)}\n"
-    "      restart:\n        hr(h, ad, sr): [{hold: h, gate: 0, ad: ad, sr: sr}, end]\n"
-    "      ctrl:\n        arp(a, b): [{ctrl: a, note: +a}, {wait: a, gate: b, note: -b,"
+    "unitracker: 1.23\nmeta: {title: T}\nmod:\n  walk(s): v + s\n"
+    "restart:\n  hr(h, ad, sr): [{hold: h, gate: 0, ad: ad, sr: sr}, end]\n"
+    "ins:\n  i1: {ad: 9, ctrl: arp(7,-4), pw: pt(3), filter: fl(5), restart: hr(2,9,220)}\n"
+    "ctrl:\n  arp(a, b): [{ctrl: a, note: +a}, {wait: a, gate: b, note: -b,"
     " run: pw:pt(b)}, {run: fl(a)}, {loop: 0}]\n"
-    "        c1: [{ctrl: 129^8, route: 3, freq: v + 1}, end]\n"
-    "      pw:\n        pt(b): [{pw: walk(b)}, {pw: b, res: b, route: b, mode: b, vol: b}, end]\n"
-    "        pw1: pt(4)\n      filter:\n        fl(c): c\n"
+    "  c1: [{ctrl: 129^8, route: 3, freq: v + 1}, end]\n"
+    "pw:\n  pt(b): [{pw: walk(b)}, {pw: b, res: b, route: b, mode: b, vol: b}, end]\n"
+    "  pw1: pt(4)\nfilter:\n  fl(c): c\n"
+    "song:\n  - def:\n"
     "      phrase:\n        p1: [C4.i1!run:ctrl:arp(1,2), -!run:arp(3,4), D4.{ctrl: arp(0,0)}]\n"
     "    play: [p1]\n  - end\n"
 )
@@ -915,3 +915,46 @@ def test_other_program_template_spellings_are_refused(old, new):
     assert old in PROGRAMS
     with pytest.raises(CanonicalError):
         parse(PROGRAMS.replace(old, new))
+
+
+def test_the_definitions_are_top_level_sections_after_the_templates():
+    """restart, ins, ctrl, pw and filter sections, each optional and in that order, stand after
+    the top-level mod section and before init, records at 2 spaces, each a section tree as a
+    row's are; a row's def: keeps its phrases."""
+    tree = parse(PROGRAMS.replace("song:", "init: [C4.i1]\nsong:"))
+    top = [c for c in tree.children if isinstance(c, Tree) and c.data == "section"]
+    assert [c.children[0].type for c in top] == [
+        "RESTART_SIG",
+        "INS",
+        "CTRL_SIG",
+        "PW_SIG",
+        "FILTER_SIG",
+    ]
+    rows = [s for r in tree.find_data("row") for s in r.children if isinstance(s, Tree)]
+    assert [s.children[0].type for s in rows if s.data == "section"] == ["PHRASE"]
+    assert parse(
+        PROGRAMS.replace(
+            "restart:\n  hr(h, ad, sr): [{hold: h, gate: 0, ad: ad, sr: sr}, end]\n", ""
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "old, new",
+    [
+        ("pw:\n  pt(b)", "pw:\n    pt(b)"),
+        ("ins:\n  i1: {", "ins:\n        i1: {"),
+        ("filter:\n  fl(c): c\n", ""),
+        ("mod:\n  walk(s): v + s\n", ""),
+    ],
+)
+def test_other_top_level_definition_spellings_are_refused(old, new):
+    """Records at other than 2 spaces, and the sections out of their order (filter moved first,
+    the mod section after them)."""
+    text = PROGRAMS.replace(old, new)
+    if not new and old.startswith("filter"):
+        text = text.replace("restart:\n", "filter:\n  fl(c): c\nrestart:\n")
+    if not new and old.startswith("mod"):
+        text = text.replace("song:", "mod:\n  walk(s): v + s\nsong:")
+    with pytest.raises(CanonicalError):
+        parse(text)

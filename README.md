@@ -23,7 +23,10 @@ stand in one top-level `mod:` section after `tables:` and before `init`, records
 code lines at 4, each keyed by its signature (`  vib(l, c, s): |`, `  walk(s): v + s`,
 `  note(): F(N)`; parameters separated by `, `); a call binds one wherever a cell is bound, its
 integer arguments in the signature's order without spaces (`pw: walk(-2)`,
-`!tick.freq:vib(0,4,64)`, `slots: {freq: {base: {mod: note()}}}`). The grammar admits every
+`!tick.freq:vib(0,4,64)`, `slots: {freq: {base: {mod: note()}}}`). Its other definitions that
+are not song content follow, each kind one top-level section with records at 2 spaces, in the
+order `restart:`, `ins:`, `ctrl:`, `pw:`, `filter:` (each optional, a `section` tree as a row's
+is); a row's `def:` keeps its `phrase:` section. The grammar admits every
 version's forms (a row's `mod:` records may also be keyed by a signature): which a version plays
 is the player's to say. A definition may also stand inline at its one use in place of its name: a
 program after its kind in `run:` and `!run:` (`run: pw[{pw: 5}, end]`, `!run:ctrl[{ctrl: 64},
@@ -160,7 +163,7 @@ doc = replace(doc, loop=None)                                # edits are datacla
 
 | class | holds |
 |---|---|
-| `Document(header, tables, mods, init, rows, loop)` | `tables` `{name: ints}`; `mods` the top-level templates `(signature, Expr \| Code)`; `init` events or None; `loop` the row it loops to, None for `end` |
+| `Document(header, tables, mods, defs, init, rows, loop)` | `tables` `{name: ints}`; `mods` the top-level templates `(signature, Expr \| Code)`; `defs` the top-level `restart`, `ins`, `ctrl`, `pw` and `filter` sections (`Section`s, or `{kind: [(name, value)]}`); `init` events or None; `loop` the row it loops to, None for `end` |
 | `Header(version, meta, clock, voices, tempo, hold, slots, order, state)` | each line, None where not written; `meta` texts as written (`"'A, B'"` quoted); `slots` `{cell: [Slot]}`, `state` `{cell: [(name, size)]}`; `slot(cell)` its Slots |
 | `Slot(name, mod, hold, reset)` | a slot's default binding and its events (`"note-1"`, `"row.freq"`) |
 | `SongRow(play, defs)` | play entries (`Play(phrase, transpose)`, `"~"`, `"end"`; a phrase is a name or inline events) and `{kind: [(name, value)]}` (`Section`s); a template's name is its `signature` (`arp(a, b)`), its rows reading parameters as strings (`ad: "a"`, `note: "+a"`, `Call("walk", ("b",))`) |
