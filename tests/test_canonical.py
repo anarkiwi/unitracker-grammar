@@ -3,6 +3,8 @@
 import pytest
 from lark import Token, Tree
 
+from unitracker_grammar import expr
+from unitracker_grammar.code import Statements, inline
 from unitracker_grammar import (
     GRAMMAR,
     NTSC_HZ,
@@ -556,3 +558,360 @@ def test_other_order_spellings_are_refused(head):
     are refused."""
     with pytest.raises(CanonicalError):
         parse(doc("", head))
+
+
+STATE = "state: {freq: {t: 1}, pw: {r: 1, q: 2}, cut: {k: 2}}\n"
+CODE = (
+    "      mod:\n        vib: |\n          lda t\n          bmi up\n          cmp #c\n"
+    "          adc #>c\n          sta G.lo+3,x\n          up:\n          rts\n"
+    "        porta: v + s\n"
+)
+
+
+def test_the_state_line_names_each_cell_s_variables_after_the_order_line():
+    tree = parse(doc("", ORDER + STATE + "tables:\n  G: [1]\n").replace("1.21", "1.23"))
+    assert [
+        (n.data, [str(t) for t in n.children[0].scan_values(lambda _: True)])
+        for n in first(tree, "state").iter_subtrees_topdown()
+        if n.data.startswith("state_") and isinstance(n.children[0], Tree)
+        if n.children[0].data == "state_vars"
+    ] == [
+        ("state_freq", ["t", "1"]),
+        ("state_pw", ["r", "1", "q", "2"]),
+        ("state_cut", ["k", "2"]),
+    ]
+    assert first(parse(doc("", "state: {cut: {k: 1}}\n")), "state")
+
+
+@pytest.mark.parametrize(
+    "head",
+    [
+        STATE + ORDER,
+        "state: {}\n",
+        "state: {freq: {}}\n",
+        "state: {pw: {r: 1}, freq: {t: 1}}\n",
+        "state: {vol: {t: 1}}\n",
+        "state: {freq: {t: 3}}\n",
+        "state: {freq: {t: 12}}\n",
+        "state: {freq: {t: 0}}\n",
+        "state: {freq: {T: 1}}\n",
+        "state: {freq: {t:1}}\n",
+        *(f"state: {{freq: {{{name}: 1}}}}\n" for name in ("v", "phi", "nn", "ne", "a", "x", "y")),
+        "tables:\n  G: [1]\n" + STATE,
+    ],
+)
+def test_other_state_spellings_are_refused(head):
+    """A state line before the order line or after the tables, an empty cell or line, cells out
+    of order, a cell that is none, a size other than 1 or 2, a name that is no NAME or a reserved
+    symbol and a missing space are refused."""
+    with pytest.raises(CanonicalError):
+        parse(doc("", head))
+
+
+def test_a_template_may_be_a_code_block_of_statements():
+    tree = parse(doc(CODE, STATE))
+    section = next(s for s in tree.find_data("section") if s.children[0] == "vib")
+    assert [c if isinstance(c, Token) else c.data for c in section.children] == [
+        "vib",
+        "code",
+        "porta",
+        "expr",
+    ]
+    assert [
+        (n.data, [str(t) for t in n.scan_values(lambda _: True)])
+        for n in first(tree, "code").children
+    ] == [
+        ("code_op", ["lda", "t"]),
+        ("code_op", ["bmi", "up"]),
+        ("code_op", ["cmp", "c"]),
+        ("code_op", ["adc", ">", "c"]),
+        ("code_op", ["sta", "G.lo", "+3", ",x"]),
+        ("code_label", ["up"]),
+        ("code_op", ["rts"]),
+    ]
+
+
+@pytest.mark.parametrize(
+    "defs",
+    [
+        CODE.replace("          up:", "        up:"),
+        CODE.replace("          rts", "            rts"),
+        CODE.replace("vib: |", "vib: | "),
+        CODE.replace("vib: |\n", "vib: |\n\n"),
+        CODE.replace("#c", "#$c"),
+        "      x:\n        x1: |\n          rts\n",
+        "      mod:\n        vib: |\n",
+    ],
+)
+def test_other_code_block_spellings_are_refused(defs):
+    """A label or statement at another indentation, a space after the block indicator, a blank
+    line, a hex integer, a code block in an x record and an empty block are refused."""
+    with pytest.raises(CanonicalError):
+        parse(doc(defs))
+
+
+TOP = (
+    "tables:\n  G: [1]\nmod:\n  note(): (φ < 1)*F(N) + v*(φ >= 1)\n  walk(s): v + s\n"
+    "  vib(c, s): |\n    lda t\n    cmp #c\n    lda F.hi,x\n    adc #<s\n    up:\n    rts\n"
+)
+
+
+def test_the_top_level_mod_section_holds_signed_templates_after_the_tables():
+    """Its records are at 2 spaces, each keyed by a signature, a code block's lines at 4: the
+    tree is a ``mods`` of signature tokens each before its ``expr`` or ``code``."""
+    tree = parse(doc("", STATE + TOP + "init: [C4]\n").replace("1.21", "1.23"))
+    assert [str(c) if isinstance(c, Token) else c.data for c in first(tree, "mods").children] == [
+        "note()",
+        "expr",
+        "walk(s)",
+        "expr",
+        "vib(c, s)",
+        "code",
+    ]
+    assert {t.type for t in first(tree, "mods").children if isinstance(t, Token)} == {"SIGNATURE"}
+    assert [str(t) for t in first(tree, "code").scan_values(lambda _: True)][5:7] == ["F.hi", ",x"]
+
+
+@pytest.mark.parametrize(
+    "head",
+    [
+        TOP.replace("  walk(s)", "  walk"),
+        TOP.replace("    up:", "          up:"),
+        TOP.replace("  note()", "    note()"),
+        TOP.replace("vib(c, s)", "vib(c,s)"),
+        TOP.replace("vib(c, s)", "vib(c,  s)"),
+        TOP.replace("vib(c, s)", "vib(x, s)"),
+        TOP.replace("walk(s)", "walk( )"),
+        TOP.replace("walk(s)", "Walk(s)"),
+        "mod:\n  walk(s): v + s\n" + STATE,
+        "mod:\n  walk(s): v + s\ntables:\n  G: [1]\n",
+        "init: [C4]\nmod:\n  walk(s): v + s\n",
+        "mod:\n",
+    ],
+)
+def test_other_top_level_mod_spellings_are_refused(head):
+    """A key without its signature, a statement or record at another indentation, a parameter
+    list spaced otherwise, a code symbol as a parameter, a name that is no NAME, the section
+    before the state line or the tables or after the init row, and an empty section."""
+    with pytest.raises(CanonicalError):
+        parse(doc("", head))
+
+
+def test_a_row_s_mod_record_may_be_keyed_by_its_signature():
+    tree = parse(doc("      mod:\n        walk(s): v + s\n        note(): |\n          rts\n"))
+    section = next(s for s in tree.find_data("section") if s.children[0] == "walk(s)")
+    assert [(c.type, str(c)) for c in section.children if isinstance(c, Token)] == [
+        ("SIGNATURE", "walk(s)"),
+        ("SIGNATURE", "note()"),
+    ]
+
+
+def test_a_call_binds_a_cell_wherever_a_template_or_instance_did():
+    """A row key, an instrument field, a pw or filter record, a command and a slot's default
+    each take a CALL token: the name, then its integer arguments without spaces; ``abs(3)`` is
+    the expression."""
+    tree = parse(
+        doc(
+            INS + "{ctrl: [{pw: walk(-2), tick.freq: vib(0,4,32)}, end], pw: walk(1),"
+            " filter: walk(0), freq: abs(3), wob.freq: vib(1,+2,3)}\n"
+            "      pw:\n        pw1: walk(5)\n"
+            "      phrase:\n        p2: [C4.i1!pw:walk(3)!cut:walk(1)!wob.freq:vib(0,-4,5)"
+            "!freq:note()]\n",
+            "slots: {freq: {base: {mod: note()}, wob: {}, tick: {}}}\n",
+        )
+    )
+    calls = [str(t) for t in tree.scan_values(lambda v: v.type == "CALL")]
+    assert calls == [
+        "note()",
+        "walk(-2)",
+        "vib(0,4,32)",
+        "walk(1)",
+        "walk(0)",
+        "vib(1,+2,3)",
+        "walk(5)",
+        "walk(3)",
+        "walk(1)",
+        "vib(0,-4,5)",
+        "note()",
+    ]
+    assert [str(t) for t in tree.scan_values(lambda v: v.type == "ABS")] == ["abs("]
+
+
+@pytest.mark.parametrize(
+    "defs",
+    [
+        INS + "{pw: walk(1, 2)}\n",
+        INS + "{pw: walk(1,)}\n",
+        INS + "{pw: walk (1)}\n",
+        INS + "{pw: Walk(1)}\n",
+        "      phrase:\n        p2: [C4!pw:walk(1, 2)]\n",
+        "      phrase:\n        p2: [C4!ad:walk(1)]\n",
+    ],
+)
+def test_other_call_spellings_are_refused(defs):
+    """A space in or before the arguments, a trailing comma, a name that is no NAME and a call
+    where no cell is bound."""
+    with pytest.raises(CanonicalError):
+        parse(doc(defs))
+
+
+INLINE = (
+    "unitracker: 1.23\nmeta: {title: T}\ninit: [C4.{ad: 1}!pw:'v + 1']\nsong:\n  - def:\n"
+    "      ins:\n        i1: {ctrl: [{ctrl: 65, run: pw[{pw: 5}, end]}, end],"
+    " pw: asm{lda v; up:; adc #1; sta v; bne up; rts}, freq: asm{rts}}\n"
+    "    play: [[C4.{ad: 9, ctrl: [{ctrl: 65}, end]}!run:ctrl[{ctrl: 64}, {loop: 0}]"
+    "!pw:asm{lda T.lo+3,x; sta v; rts}!cut:'min(3, v) + 1'!freq:'F(N) + 2'*2,"
+    " -!run:filter[{cut: 7}, end]]+2]\n"
+    "  - play: [[C4.i1!tick.freq:'2*v'*3]]\n  - end\n"
+)
+
+
+def test_a_definition_stands_inline_where_its_name_does():
+    """A program after its kind in run: and !run:, an instrument after an event's note, a
+    phrase with its transpose in a play entry, an anonymous code body wherever a cell is bound,
+    and a quoted expression in a command."""
+    tree = parse(INLINE)
+    assert [str(n.children[0]) for n in tree.find_data("run_program")] == ["pw", "ctrl", "filter"]
+    assert len(list(tree.find_data("instrument"))) == 3
+    plays = list(tree.find_data("play"))
+    assert [p.children[0].data for p in plays] == ["phrase", "phrase"]
+    assert [str(t) for t in plays[0].children[1:]] == ["+2"]
+    asm = [Statements().transform(n) for n in tree.find_data("asm")]
+    assert sorted(inline(a) for a in asm) == [
+        "asm{lda T.lo+3,x; sta v; rts}",
+        "asm{lda v; up:; adc #1; sta v; bne up; rts}",
+        "asm{rts}",
+    ]
+    commands = [
+        expr.printed(expr.Nodes().transform(f.children[0]))
+        for n in tree.iter_subtrees()
+        if n.data.startswith("cmd_")
+        for f in n.children
+        if isinstance(f, Tree) and f.data == "fexpr"
+    ]
+    assert sorted(commands) == ["2*v", "F(N) + 2", "min(3, v) + 1", "v + 1"]
+    slots = parse(doc("", "slots: {pw: {a: {mod: asm{rts}}, b: {mod: 'v + 1', hold: [step]}}}\n"))
+    assert [c.data for n in slots.find_data("slot_mod") for c in n.children[:1]] == [
+        "asm",
+        "fexpr",
+    ]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        INLINE.replace("run:ctrl[", "run:["),
+        INLINE.replace("run: pw[", "run: pw ["),
+        INLINE.replace("run: pw[", "run: c[", 1),
+        INLINE.replace("!pw:'v + 1'", "!pw:v + 1"),
+        INLINE.replace("!freq:'F(N) + 2'", "!freq:F(N)"),
+        INLINE.replace("asm{rts}", "asm{}"),
+        INLINE.replace("asm{rts}", "asm {rts}"),
+        INLINE.replace("asm{rts}", "asm{clc;rts}"),
+        INLINE.replace("asm{rts}", "asm{clc;  rts}"),
+        INLINE.replace("]+2]", "] +2]"),
+        INLINE.replace("C4.{ad: 9,", "C4.{ad:9,"),
+    ],
+)
+def test_other_inline_spellings_are_refused(text):
+    """A program without its kind or spaced from it, an unquoted expression in a command, an
+    empty or spaced code body, a statement separator other than ``; ``, a spaced transpose and
+    an instrument outside the instrument spelling."""
+    with pytest.raises(CanonicalError):
+        parse(text)
+
+
+PROGRAMS = (
+    "unitracker: 1.23\nmeta: {title: T}\nmod:\n  walk(s): v + s\nsong:\n  - def:\n"
+    "      ins:\n        i1: {ad: 9, ctrl: arp(7,-4), pw: pt(3), filter: fl(5),"
+    " restart: hr(2,9,220)}\n"
+    "      restart:\n        hr(h, ad, sr): [{hold: h, gate: 0, ad: ad, sr: sr}, end]\n"
+    "      ctrl:\n        arp(a, b): [{ctrl: a, note: +a}, {wait: a, gate: b, note: -b,"
+    " run: pw:pt(b)}, {run: fl(a)}, {loop: 0}]\n"
+    "        c1: [{ctrl: 129^8, route: 3, freq: v + 1}, end]\n"
+    "      pw:\n        pt(b): [{pw: walk(b)}, {pw: b, res: b, route: b, mode: b, vol: b}, end]\n"
+    "        pw1: pt(4)\n      filter:\n        fl(c): c\n"
+    "      phrase:\n        p1: [C4.i1!run:ctrl:arp(1,2), -!run:arp(3,4), D4.{ctrl: arp(0,0)}]\n"
+    "    play: [p1]\n  - end\n"
+)
+
+
+def test_a_program_record_may_be_a_template_whose_rows_read_its_parameters():
+    """Each program kind's record may be keyed by a signature; a row reads a parameter where it
+    takes an integer, as a relative note's +p or -p, as a cell value and as a call's argument,
+    and a call binds a template wherever a program name stands, in run: bare or after its
+    kind."""
+    tree = parse(PROGRAMS)
+    keys = [
+        (t.type, str(t))
+        for s in tree.find_data("section")
+        for t in s.children
+        if isinstance(t, Token) and t.type.endswith("_SIG")
+    ]
+    assert keys == [
+        ("RESTART_SIG", "hr(h, ad, sr)"),
+        ("CTRL_SIG", "arp(a, b)"),
+        ("PW_SIG", "pt(b)"),
+        ("FILTER_SIG", "fl(c)"),
+    ]
+    reads = [
+        (n.data, str(t))
+        for n in tree.iter_subtrees_topdown()
+        if n.data != "factor"
+        for t in n.children
+        if isinstance(t, Token) and t.type in ("PARAM", "REL_PARAM")
+    ]
+    assert reads[:6] == [
+        ("row_hold", "h"),
+        ("row_ad", "ad"),
+        ("row_sr", "sr"),
+        ("ctrl_value", "a"),
+        ("note_value", "+a"),
+        ("row_wait", "a"),
+    ]
+    assert [d for d, _ in reads[6:]] == [
+        "row_gate",
+        "note_value",
+        "row_res",
+        "route_value",
+        "row_mode",
+        "row_vol",
+    ]
+    names = [n.children for n in tree.find_data("program_name")]
+    assert [[(t.type, str(t)) for t in c] for c in names] == [
+        [("RUN_KIND", "pw:"), ("CALL", "pt(b)")],
+        [("CALL", "fl(a)")],
+        [("RUN_KIND", "ctrl:"), ("CALL", "arp(1,2)")],
+        [("CALL", "arp(3,4)")],
+    ]
+
+
+@pytest.mark.parametrize(
+    "old, new",
+    [
+        ("arp(a, b): [", "arp(a,b): ["),
+        ("arp(a, b): [", "arp(v, b): ["),
+        ("arp(a, b): [", "arp(a, n): ["),
+        ("fl(c): c", "fl(none): none"),
+        ("fl(c): c", "f2(c): c"),
+        ("fl(c): c", "fl(c1): c1"),
+        ("note: +a", "note: + a"),
+        ("note: +a", "note: a"),
+        ("{loop: 0}", "{loop: a}"),
+        ("route: 3", "route: + a"),
+        ("ctrl: 129^8", "ctrl: 129^a"),
+        ("run: pw:pt(b)", "run: pw: pt(b)"),
+        ("run: pw:pt(b)", "run: restart:hr(1,2,3)"),
+        ("!run:ctrl:arp(1,2)", "!run:ctrl:c1"),
+        ("pw: pt(3)", "pw: pt(3, 4)"),
+        ("arp(7,-4)", "arp(7, -4)"),
+    ],
+)
+def test_other_program_template_spellings_are_refused(old, new):
+    """A signature's parameters separated by ", " and none a name a cell value means otherwise
+    (v, n, none, hold) nor a record's; a relative note's sign before the name; a loop row, a
+    route's mask and a control mask literal; a run's kind joined to its call, and run's kinds
+    alone; a call's arguments unspaced."""
+    assert old in PROGRAMS
+    with pytest.raises(CanonicalError):
+        parse(PROGRAMS.replace(old, new))
