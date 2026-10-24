@@ -223,3 +223,15 @@ def test_the_chord_table_is_music21s():
     assert (Path(__file__).resolve().parents[1] / "src/unitracker_grammar/chords.py").read_text(
         encoding="utf-8"
     ) == tool.text()
+
+
+def test_an_instrument_or_phrase_record_may_be_a_template_call():
+    text = doc(
+        "ins:\n i1:arpi(9,min)\n arpi(a,b,c):{ad:a,ctrl:ar(b,c)}\nctrl:\n"
+        " ar(a,b):[{note:+a},{note:+b},end]\nphrase:\n p1:riff(C4)\n riff(x):[x.i1,-]\n",
+        " - play:[p1,p2=riff(D4),p3=[C4.i2=arpi(1,maj)]]\n - end\n",
+    )
+    assert printed(read(text)) == text
+    out = core_text(text)
+    assert " i1:{ad:9,ctrl:ar(3,7)}\n" in out and " i2:{ad:1,ctrl:ar(4,7)}\n" in out
+    assert " p1:[C4.i1,-]\n" in out and " p2:[D4.i1,-]\n" in out

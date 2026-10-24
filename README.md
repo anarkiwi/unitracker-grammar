@@ -108,6 +108,7 @@ call stays a call.
 | phrase template | ` riff(x,y):[x.i1,-,y,E4]`, `play:[riff(G1,f1)+2,...]` | the phrase with each parameter its note; a note after a parameter carries its octave |
 | group | `[E,G]x2`, `[A|B|C5]` (a volta), in a phrase and among song items | its body twice; its body before each ending in turn (`A,B,A,C5`) |
 | section | ` s1:[play:[p1,p2,p3],s2x2,[...]x2]` after `phrase:`; song items ` - s1`, ` - s1x3`, ` - play:[...]` | its items in place, the song's `{loop:k}` naming its `k`th item |
+| a record a call | ` i14:arpi(9,240)`, ` p14:riff(G1,f1)` | the record its template's instance |
 | first use | `C4.arpi(a,b)={...}(9,240)`, `riff(x,y)=[...](G1,f1)`, ` - s1=[...]x2` | the definition in its section |
 
 Core constructs a player reads: a binding written with `!` after it (`tick.freq:snap()!`,

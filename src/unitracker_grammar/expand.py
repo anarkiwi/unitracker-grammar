@@ -102,15 +102,25 @@ def _instruments(doc: Document) -> Document:
     base = max((int(n[1:]) for n in doc.records("ins") if "(" not in n), default=0)
     names, made = {}, []
 
+    def instance(call: Call) -> Instrument:
+        if call.name not in templates:
+            raise CanonicalError(f"{call}: {call.name} is no instrument template")
+        params, body = templates[call.name]
+        return _bound(body, _call(call, params))
+
+    named = [
+        (k, instance(v) if isinstance(v, Call) else v)
+        for k, v in doc.records("ins").items()
+        if "(" not in k
+    ]
+    doc = _with(doc, "ins", named + [(k, v) for k, v in doc.records("ins").items() if "(" in k])
+
     def visit(value, site):
         if site != "ins" or not isinstance(value, Call):
             return value
         if value not in names:
-            if value.name not in templates:
-                raise CanonicalError(f"{value}: {value.name} is no instrument template")
-            params, body = templates[value.name]
             names[value] = f"i{base + len(made) + 1}"
-            made.append((names[value], _bound(body, _call(value, params))))
+            made.append((names[value], instance(value)))
         return names[value]
 
     doc = _order(doc, visit)
@@ -246,6 +256,8 @@ def _sugared(tree: Tree) -> bool:
             if token.type in ("PHRASE_CALL", "NOTE_PARAM"):
                 return True
             if token.type == "SIGNATURE" and node.data in ("def_ins", "def_phrase"):
+                return True
+            if token.type == "CALL" and node.data in ("def_ins", "use_ins"):
                 return True
             if token.type == "CALL":
                 found = _code.call(token)

@@ -98,12 +98,13 @@ intlist: _LB INT (_SEP INT)* "]"
 
 def_mod: "mod:" _NL (" " SIGNATURE (":" expr _NL | ":|" _NL code))+
 def_restart: "restart:" _NL (" " (RESTART | SIGNATURE) ":" program _NL)+
-def_ins: "ins:" _NL (" " (INS | SIGNATURE) ":" instrument _NL)+
+// an instrument or phrase record may be a call of its kind's template
+def_ins: "ins:" _NL (" " (INS | SIGNATURE) ":" (instrument | CALL) _NL)+
 def_ctrl: "ctrl:" _NL (" " (CTRL | SIGNATURE) ":" program _NL)+
 // a pulse or filter record that is one binding is written as that binding
 def_pw: "pw:" _NL (" " (PW | SIGNATURE) ":" modulation _NL)+
 def_filter: "filter:" _NL (" " (FILTER | SIGNATURE) ":" modulation _NL)+
-def_phrase: "phrase:" _NL (" " (PHRASE | SIGNATURE) ":" phrase _NL)+
+def_phrase: "phrase:" _NL (" " (PHRASE | SIGNATURE) ":" (phrase | PHRASE_CALL) _NL)+
 def_section: "section:" _NL (" " SECTION ":" section _NL)+
 
 // one event per voice: the state after init, a step of no duration before the first tick
@@ -203,12 +204,12 @@ keep_filter: KEEP_FILTER |
 // referenced, a template's signature and "=" before its body, then its call's arguments; a
 // program template's body is a program, after its kind where a run starts it -------------
 
-use_ins: DEF_INS instrument
+use_ins: DEF_INS (instrument | CALL)
 use_restart: DEF_RESTART program
 use_ctrl: DEF_CTRL program
 use_pw: DEF_PW modulation
 use_filter: DEF_FILTER modulation
-use_phrase: DEF_PHRASE phrase
+use_phrase: DEF_PHRASE (phrase | PHRASE_CALL)
 use_section: DEF_SECTION section
 // a phrase template's call takes notes, each with its octave
 use_template: DEF_SIG (asm | qexpr | program | run_program | instrument) ARGS | DEF_SIG phrase NOTE_ARGS

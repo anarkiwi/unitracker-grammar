@@ -161,7 +161,8 @@ def _definitions(kind: str):
     """A definition section's rule: its records, each a key token and its value."""
 
     def method(_self, children):
-        return Section(kind, tuple((str(k), v) for k, v in zip(children[::2], children[1::2])))
+        values = (_leaf(v) if isinstance(v, Token) else v for v in children[1::2])
+        return Section(kind, tuple(zip(map(str, children[::2]), values)))
 
     return method
 
@@ -464,7 +465,9 @@ def _args(args: tuple) -> str:
 
 
 def _body(value: tuple, kind: str) -> str:
-    """A phrase's events, or a section's items."""
+    """A phrase's events or its template's call, or a section's items."""
+    if isinstance(value, Call):
+        return value.name + _args(value.args)
     return _seq(_item(i) for i in value) if kind == "section" else _events(value)
 
 

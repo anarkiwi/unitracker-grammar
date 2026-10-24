@@ -483,6 +483,10 @@ def programs(tree: Tree) -> dict[str, tuple[str, tuple[str, ...]]]:
     nested = {id(body) for _, key, body in first_uses(tree) if key.type == "SIGNATURE"}
     for kind in PROGRAM_KINDS + ("ins",):
         for key, body in _records(tree, kind):
+            if isinstance(body, Token):
+                if used := [a for a in call(body).args if isinstance(a, str) and a not in CHORDS]:
+                    raise CodeError(f"{key}: reads {used} and declares no parameter")
+                continue
             bodies.add(id(body))
             if key.type == "SIGNATURE":
                 reads_ = program_reads(body, signature(key)[1], nested - {id(body)})
@@ -594,7 +598,7 @@ def phrases(tree: Tree) -> dict[str, tuple[str, ...]]:
     notes its events stand a parameter for; CodeError for a note's parameter outside one."""
     out, bodies = {}, set()
     for key, body in _records(tree, "phrase"):
-        if key.type == "SIGNATURE":
+        if key.type == "SIGNATURE" and isinstance(body, Tree):
             bodies.add(id(body))
             used = dict.fromkeys(str(t) for t in body.scan_values(lambda v: v.type == "NOTE_PARAM"))
             out[declare(key, used)[0]] = signature(key)[1]
