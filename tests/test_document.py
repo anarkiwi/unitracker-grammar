@@ -305,3 +305,16 @@ def test_a_layout_that_does_not_match_its_text_is_dropped():
     from unitracker_grammar import document  # pylint: disable=import-outside-toplevel
 
     assert not document._layout(["x\n"], ["y\n"])  # pylint: disable=protected-access
+
+
+def test_top_level_definitions_print_after_the_templates_at_two_spaces():
+    doc = Document(
+        Header("1.23", META),
+        mods=[("note()", Expr("F(N)"))],
+        defs={"ins": [("i1", Instrument({"ad": 9}))], "ctrl": [("c1", Program([{"ctrl": 65}]))]},
+        init=[Event("-", "i1")],
+        rows=[SongRow(["p1"], {"phrase": [("p1", [Event("C4", "i1")])]})],
+    )
+    text = printed(doc)
+    assert "  note(): F(N)\nins:\n  i1: {ad: 9}\nctrl:\n  c1: [{ctrl: 65}, end]\ninit:" in text
+    assert list(doc.records("ins")) == ["i1"] and doc.sections("ctrl")[0][0] is None

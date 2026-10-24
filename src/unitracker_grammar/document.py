@@ -291,13 +291,14 @@ class Header(_Node):  # pylint: disable=too-many-instance-attributes
 @dataclass(frozen=True)
 class Document(_Node):
     """A whole document: its header, tables ``(name, values)``, top-level templates
-    ``(signature, Expr | Code)``, init events (None where not written), timeline rows and
-    ending, ``loop`` the row it loops to (None for ``end``); ``layout`` pairs a line's printed
-    text with its text as read where a reader wrapped it otherwise."""
+    ``(signature, Expr | Code)``, top-level definitions (Sections, or ``{kind: records}``),
+    init events (None where not written), timeline rows and ending, ``loop`` the row it loops
+    to (None for ``end``); ``layout`` pairs a printed line with its text as read otherwise."""
 
     header: Header = field(default_factory=Header)
     tables: tuple = ()
     mods: tuple = ()
+    defs: tuple = ()
     init: tuple | None = None
     rows: tuple = ()
     loop: int | None = None
@@ -305,11 +306,14 @@ class Document(_Node):
 
     def _normal(self):
         _set(self, "tables", tuple((k, tuple(v)) for k, v in _pairs(self.tables)))
+        _set(self, "defs", tuple(s if isinstance(s, Section) else Section(*s) for s in self.defs))
         _set(self, "rows", tuple(r if isinstance(r, SongRow) else SongRow(*r) for r in self.rows))
 
     def sections(self, kind: str) -> list:
-        """``(row index, Section)`` of every section of ``kind``, in document order."""
-        return [(i, s) for i, r in enumerate(self.rows) for s in r.defs if s.kind == kind]
+        """``(row index, Section)`` of every section of ``kind``, in document order, a
+        top-level one's index None."""
+        top = [(None, s) for s in self.defs if s.kind == kind]
+        return top + [(i, s) for i, r in enumerate(self.rows) for s in r.defs if s.kind == kind]
 
     def records(self, kind: str) -> dict:
         """Every record of ``kind``, ``{name: value}``; ``mod``'s top-level templates first."""
@@ -894,11 +898,11 @@ def _template(key: str, body, indent: int) -> list:
     return [_line(f"{pad}{key}: ", _binding(body, "block"), indent)]
 
 
-def _record(kind: str, name: str, value) -> list:
+def _record(kind: str, name: str, value, indent: int = 8) -> list:
     if kind == "mod":
-        return _template(name, value, 8)
+        return _template(name, value, indent)
     parts = [_events(value)] if kind == "phrase" else _binding(value, "block")
-    return [_line(f"        {name}: ", parts, 8)]
+    return [_line(f"{' ' * indent}{name}: ", parts, indent)]
 
 
 def printed(doc: Document) -> str:
@@ -927,6 +931,10 @@ def _lines(doc: Document) -> list:
         lines.append("mod:\n")
         for key, body in doc.mods:
             lines += _template(key, body, 2)
+    for section in doc.defs:
+        lines.append(f"{section.kind}:\n")
+        for name, value in section.records:
+            lines += _record(section.kind, name, value, 2)
     if doc.init is not None:
         lines.append(_line("init: ", [_events(doc.init)], 0))
     lines.append("song:\n")
