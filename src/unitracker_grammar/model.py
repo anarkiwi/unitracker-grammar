@@ -7,10 +7,11 @@ from typing import NamedTuple
 
 from unitracker_grammar import code as _code
 
-VERSION = "2.3"
+VERSION, LAYERED = "2.3", "2.4"
 NONE, HOLD, RESET, CONT, END = "none", "hold", "reset", "~", "end"
 KINDS = ("restart", "ins", "ctrl", "pw", "filter", "phrase", "section")
 CELLS = ("freq", "pw", "cut")
+LAYERED_KINDS = ("ctrl", "pw", "filter")
 _INT = re.compile(r"\d+")
 _ROW_KEYS = (
     "wait hold ctrl mask gate note ad sr pw cut res route route_on route_off mode freq run vol"
@@ -263,15 +264,17 @@ class Header(_Node):  # pylint: disable=too-many-instance-attributes
     """The header lines, each None (``meta`` empty) where not written; ``meta`` holds each
     text as written, plain or quoted, ``clock`` is ``(cycles_per_tick, clock_hz)`` or
     ``(cycles_per_tick, clock_hz, "floor")`` (a ``"round"`` third is dropped), ``tempo``
-    an int or ``(a, b)``, ``slots`` and ``state`` are ``(cell, ...)`` pairs, ``regs`` the 25
-    registers' values before tick 0, ``lag`` the output's ticks of lag and ``global_cells`` the
-    cells the song owns (``("cut",)``)."""
+    an int or ``(a, b)``, ``slots`` and ``state`` are ``(cell, ...)`` pairs, ``layers``
+    ``(kind, names)`` pairs in LAYERED_KINDS order, ``regs`` the 25 registers' values before
+    tick 0, ``lag`` the output's ticks of lag and ``global_cells`` the cells the song owns
+    (``("cut",)``)."""
 
     meta: tuple = ()
     clock: tuple | None = None
     voices: int | None = None
     tempo: int | tuple | None = None
     slots: tuple | None = None
+    layers: tuple | None = None
     order: tuple | None = None
     state: tuple | None = None
     regs: tuple | None = None
@@ -287,10 +290,17 @@ class Header(_Node):  # pylint: disable=too-many-instance-attributes
         for name in ("regs", "global_cells"):
             if getattr(self, name) is not None:
                 _set(self, name, tuple(getattr(self, name)))
-        for name in ("slots", "state"):
+        for name in ("slots", "layers", "state"):
             value = getattr(self, name)
             if value is not None:
                 _set(self, name, tuple((k, tuple(v)) for k, v in _pairs(value)))
+        if self.layers is not None:
+            _set(self, "layers", _ordered(self.layers, list(LAYERED_KINDS)))
+
+    @property
+    def version(self) -> str:
+        """The format of the version line: LAYERED where the header declares layers."""
+        return VERSION if self.layers is None else LAYERED
 
     def slot(self, cell: str) -> tuple:
         """The Slots of ``cell``: one named after it where the slots line leaves it out."""

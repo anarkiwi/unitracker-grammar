@@ -7,8 +7,8 @@ in its one text and compiled to Python.
 
 A document names no player. It holds everything it plays: instruments, programs, expressions,
 code, phrases and the tables they index. Its only constants are the note table at its clock and
-the header defaults (PAL clock, 3 voices, tempo 6). The grammar is format 2.3's, and refuses
-every other version.
+the header defaults (PAL clock, 3 voices, tempo 6). The grammar is format 2.3's and 2.4's, and
+refuses every other version.
 
 ```text
 unitracker:2.3
@@ -43,7 +43,8 @@ After `meta`, each optional and in this order: `clock` (`{cycles_per_tick:C,cloc
 and `rounding:floor` where the note table's words are rounded down rather than to the nearest),
 `voices`, `tempo`; `slots`, per cell its modulator slots in firing order, each with its default
 binding and the events it holds and resets on
-(`slots:{freq:{wave:{mod:note(),reset:[row.note]},tick:{hold:[step-1,row]}}}`); `order`, the
+(`slots:{freq:{wave:{mod:note(),reset:[row.note]},tick:{hold:[step-1,row]}}}`); `layers`
+(format 2.4, below); `order`, the
 phases of a tick (`order:[events,ctrl,pulse,filter,freq,pw,cut,read]`); `state`, per cell its
 state variables and their sizes in bytes (`state:{freq:{t:1},pw:{r:1,q:2}}`); `regs`, the 25 SID
 registers' values before tick 0 (`regs:[0,0,...,15]`); `tables`; then the definitions that are
@@ -127,6 +128,24 @@ cutoff, its bindings and the filter program the song's, not the voice's that set
 
 `chords.CHORDS` is music21's chord types within an octave, by their longest lowercase
 abbreviation, and `oct` (12): `tools/chords.py` writes it and a test checks it against music21.
+
+## Format 2.4
+
+Layers: a voice runs several programs of one kind at once, each by its own cursor. The header's
+`layers` line, after `slots`, names per program kind (`ctrl`, `pw`, `filter`, in that order) its
+layers in the order each tick runs them: `layers:{ctrl:[a,b]}`. A kind it leaves out has one
+layer. A layer's prefix names it where a program starts, as a slot's prefix names a slot:
+
+| site | text |
+|---|---|
+| an instrument's program field, repeating per layer | `{ctrl:c1,b.ctrl:c7}`, `b.pw:pw2`, `b.filter:f1` |
+| a program row's `run`, repeating | `{b.run:c7,run:c1}`, `b.run:arp(7,4)`, `b.run:ctrl[...]` |
+| a ` run:` command, repeating | ` b.run:c7 run:c1`, ` b.run:none` |
+
+An unprefixed field or run names the kind's first layer. A document is format 2.4 exactly where
+it has a `layers` line (`Header.version`), so every 2.3 document reads and prints as before; the
+version line is `2.4` with one and `2.3` without. What layers play is unitracker-player's
+[semantics](https://github.com/anarkiwi/unitracker-player/blob/main/docs/semantics.md#layers).
 
 ## Install
 
@@ -257,7 +276,7 @@ doc = replace(doc, loop=None)                                # edits are datacla
 | class | holds |
 |---|---|
 | `Document(header, tables, mods, defs, init, rows, loop)` | `tables` `{name: ints}`; `mods` the templates `(signature, Expr \| Code)`; `defs` the `restart`, `ins`, `ctrl`, `pw`, `filter`, `phrase` and `section` sections in that order (`Section`s, or `{kind: [(name, value)]}`); `init` events or None; `rows` song items (SongRows, or play entry lists, Parts and Groups); `loop` the item it loops to, None for `end` |
-| `Header(meta, clock, voices, tempo, slots, order, state, regs, lag, global_cells)` | each line, None where not written (the version line is always `VERSION`, `"2.3"`); `clock` `(cycles_per_tick, clock_hz)`, or with `"floor"` third; `meta` texts as written (`"'A, B'"` quoted); `slots` `{cell: [Slot]}`, `state` `{cell: [(name, size)]}`; `slot(cell)` its Slots |
+| `Header(meta, clock, voices, tempo, slots, layers, order, state, regs, lag, global_cells)` | each line, None where not written (the version line is `version`: `LAYERED`, `"2.4"`, with `layers`, else `VERSION`, `"2.3"`); `layers` `{kind: names}` in `LAYERED_KINDS` order; `clock` `(cycles_per_tick, clock_hz)`, or with `"floor"` third; `meta` texts as written (`"'A, B'"` quoted); `slots` `{cell: [Slot]}`, `state` `{cell: [(name, size)]}`; `slot(cell)` its Slots |
 | `Slot(name, mod, hold, reset)` | a slot's default binding and its events (`"note-1"`, `"row.freq"`) |
 | `SongRow(play)` | play entries (`Play(phrase, transpose)`, `"~"`, `"end"`; a phrase is a name or inline events) |
 | `Section(kind, records)` | `(name, value)` records of one kind; a template's name is its `signature` (`arp(a,b)`), its rows reading parameters as strings (`ad: "a"`, `note: "+a"`, `Call("walk", ("b",))`); a `pw` or `filter` record `Program([{"pw": b}])` (`cut` for `filter`) is stored as `b` |

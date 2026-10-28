@@ -21,6 +21,8 @@ from unitracker_grammar.model import (  # pylint: disable=unused-import
     END,
     HOLD,
     KINDS,
+    LAYERED,
+    LAYERED_KINDS,
     NONE,
     RESET,
     VERSION,
@@ -53,6 +55,8 @@ __all__ = [
     "END",
     "HOLD",
     "KINDS",
+    "LAYERED",
+    "LAYERED_KINDS",
     "NONE",
     "RESET",
     "VERSION",
@@ -186,7 +190,7 @@ class _ToModel(Transformer):
     @staticmethod
     def start(children):
         head, body = {}, {"rows": [], "defs": []}
-        for c in children:
+        for c in children[1:]:
             if isinstance(c, (SongRow, Part, Group)):
                 body["rows"].append(c)
             elif isinstance(c, Section):
@@ -236,6 +240,14 @@ class _ToModel(Transformer):
     @staticmethod
     def slot(children):
         return Slot(str(children[0]), **dict(children[1] if len(children) > 1 else ()))
+
+    @staticmethod
+    def layers(children):
+        return ("layers", tuple(children[0]))
+
+    @staticmethod
+    def layer_names(children):
+        return tuple(map(str, children))
 
     @staticmethod
     def order(children):
@@ -402,6 +414,7 @@ for _name, _method in {
     **{f"cmd_{k}": _link(k, _pair) for k in ("tempo", "vtempo")},
     **{f"slot_{k}": _link(k, normal=_token) for k in ("mod", "hold", "reset")},
     **{f"state_{k}": _link(k) for k in CELLS},
+    **{f"layers_{k}": _link(k) for k in LAYERED_KINDS},
     **{f"def_{k}": _definitions(k) for k in KINDS},
     **{f"use_{k}": _ToModel.__dict__["use"] for k in KINDS + ("template",)},
 }.items():
@@ -581,7 +594,7 @@ def _slot(slot: Slot) -> list:
 
 
 def _header(head: Header) -> list:
-    lines = [f"unitracker:{VERSION}\n", f"meta:{_map(head.meta)}\n"]
+    lines = [f"unitracker:{head.version}\n", f"meta:{_map(head.meta)}\n"]
     if head.clock is not None:
         rounding = "".join(f",rounding:{r}" for r in head.clock[2:])
         lines.append(
@@ -594,6 +607,8 @@ def _header(head: Header) -> list:
     if head.slots is not None:
         cells = [(c, [(s.name, _slot(s)) for s in slots]) for c, slots in head.slots]
         lines.append(f"slots:{_flat(cells)}\n")
+    if head.layers is not None:
+        lines.append(f"layers:{_flat(list(head.layers))}\n")
     if head.order is not None:
         lines.append(f"order:{_flat(tuple(head.order))}\n")
     if head.state is not None:
