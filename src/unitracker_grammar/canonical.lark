@@ -27,10 +27,11 @@
 // after it fires once; lag and global are header lines the player reads.
 // Format 2.4 adds layers: a voice's concurrent programs of one kind, named in the header
 // (layers:{ctrl:[a,b]}) and started by a layer's prefix on an instrument's ctrl, pw or filter
-// field (b.ctrl:c7) and on a run (b.run:c7, b.run:none). A document is 2.4 exactly where it has a
-// layers line; without one each kind has one layer, and it is 2.3.
+// field (b.ctrl:c7) and on a run (b.run:c7, b.run:none); and a song of one orderlist per voice,
+// each with its own ending (" - voice:[p1,p2+2|loop:1]"). A document is 2.4 exactly where it has
+// a layers line or voice orderlists; without them each kind has one layer, and it is 2.3.
 
-start: FORMAT _NL meta _NL _from_clock? "song:" _NL item+ ending
+start: FORMAT _NL meta _NL _from_clock? "song:" _NL (item+ ending | voice+)
 // the optional lines after meta, in order: a chain of rules, each the lines from one on, so
 // that the parser's tables stay linear in their number
 _from_clock: clock _NL _from_voices? | _from_voices
@@ -136,6 +137,14 @@ _items: _item (_SEP _item)*
 song_group: _LB items ("|" items)+ "]" | _LB items "]" TIMES
 items: _items
 ending: " - end" _NL | " - {loop:" INT "}" _NL
+// a voice's orderlist: its play entries and groups of them, then its end or the top-level entry
+// it loops to; a group begins with "[", so an entry is no inline phrase
+voice: " - voice:" _LB _voice_items "|" (END | LOOP INT) "]" _NL
+_voice_items: _voice_item (_SEP _voice_item)*
+_voice_item: voice_play | voice_group
+voice_play: (PHRASE | use_phrase | PHRASE_CALL | use_template) SIGNED?
+voice_group: _LB voice_items ("|" voice_items)+ "]" | _LB voice_items "]" TIMES
+voice_items: _voice_items
 plays: _LB play (_SEP play)* "]"
 play: (PHRASE | phrase | use_phrase | PHRASE_CALL | use_template) SIGNED? | CONT | END
 

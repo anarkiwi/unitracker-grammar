@@ -7,7 +7,7 @@ from typing import NamedTuple
 
 from unitracker_grammar import code as _code
 
-VERSION, LAYERED = "2.3", "2.4"
+VERSION, VERSION_2_4 = "2.3", "2.4"
 NONE, HOLD, RESET, CONT, END = "none", "hold", "reset", "~", "end"
 KINDS = ("restart", "ins", "ctrl", "pw", "filter", "phrase", "section")
 CELLS = ("freq", "pw", "cut")
@@ -249,6 +249,18 @@ class SongRow(_Node):
 
 
 @dataclass(frozen=True)
+class Voice(_Node):
+    """A voice's orderlist: its play entries (Plays and Groups of them), then ``end`` (``loop``
+    None) or the top-level entry it loops to."""
+
+    play: tuple
+    loop: int | None = None
+
+    def _normal(self):
+        _set(self, "play", tuple(p if isinstance(p, (Play, Group)) else Play(p) for p in self.play))
+
+
+@dataclass(frozen=True)
 class Slot(_Node):
     """A modulator slot: its name, its default binding (a name, a Call, a Code or an Expr) and
     the events it holds and resets on (``note-1``, ``row.freq``), None where not written."""
@@ -297,11 +309,6 @@ class Header(_Node):  # pylint: disable=too-many-instance-attributes
         if self.layers is not None:
             _set(self, "layers", _ordered(self.layers, list(LAYERED_KINDS)))
 
-    @property
-    def version(self) -> str:
-        """The format of the version line: LAYERED where the header declares layers."""
-        return VERSION if self.layers is None else LAYERED
-
     def slot(self, cell: str) -> tuple:
         """The Slots of ``cell``: one named after it where the slots line leaves it out."""
         return dict(self.slots or ()).get(cell, (Slot(cell),))
@@ -312,7 +319,7 @@ class Document(_Node):  # pylint: disable=too-many-instance-attributes
     """A whole document: its header, tables ``(name, values)``, templates ``(signature, Expr |
     Code)``, definitions (Sections in KINDS order, or ``{kind: records}``), init events (None
     where not written), song items (SongRows, Parts and Groups) and ending, ``loop`` the item it
-    loops to (None for ``end``)."""
+    loops to (None for ``end``), or a Voice per voice and ``loop`` None."""
 
     header: Header = field(default_factory=Header)
     tables: tuple = ()
@@ -328,8 +335,20 @@ class Document(_Node):  # pylint: disable=too-many-instance-attributes
         _set(
             self,
             "rows",
-            tuple(r if isinstance(r, (SongRow, Part, Group)) else SongRow(r) for r in self.rows),
+            tuple(
+                r if isinstance(r, (SongRow, Part, Group, Voice)) else SongRow(r) for r in self.rows
+            ),
         )
+
+    @property
+    def voiced(self) -> bool:
+        """Whether the song is one orderlist per voice."""
+        return any(isinstance(r, Voice) for r in self.rows)
+
+    @property
+    def version(self) -> str:
+        """The format of the version line: VERSION_2_4 where it has layers or orderlists."""
+        return VERSION_2_4 if self.header.layers is not None or self.voiced else VERSION
 
     def records(self, kind: str) -> dict:
         """Every record of ``kind``, ``{name: value}``; ``mod`` the templates."""

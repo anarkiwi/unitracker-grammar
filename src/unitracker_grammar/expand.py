@@ -21,6 +21,7 @@ from unitracker_grammar.document import (
     Play,
     Section,
     SongRow,
+    Voice,
     _order,
     _walk,
     printed,
@@ -30,7 +31,7 @@ from unitracker_grammar.document import (
 
 __all__ = ["core", "expanded", "flat"]
 
-_SUGAR = frozenset({"group", "song_group", "part", "def_section", "use_template"})
+_SUGAR = frozenset({"group", "song_group", "voice_group", "part", "def_section", "use_template"})
 _SUGAR |= {f"use_{k}" for k in KINDS}
 
 
@@ -186,6 +187,8 @@ def _phrases(doc: Document) -> Document:
             return replace(node, phrase=flat(node.phrase))
         if isinstance(node, SongRow):
             return replace(node, play=tuple(played(p) for p in node.play))
+        if isinstance(node, Voice):
+            return replace(node, play=_map_rows(node.play, played))
         return node
 
     doc = _order(doc, visit)
@@ -226,12 +229,22 @@ def _song(doc: Document) -> Document:
                 out.append(item)
         return out
 
+    if doc.voiced:
+        voices = (_played(v.play, v.loop, lambda i: flat((i,))) for v in doc.rows)
+        return replace(doc, rows=tuple(Voice(*v) for v in voices))
+    out, loop = _played(doc.rows, doc.loop, lambda item: rows((item,), ()))
+    return replace(_with(doc, "section", []), rows=out, loop=loop)
+
+
+def _played(items: tuple, loop: int | None, play) -> tuple:
+    """``items`` each played out by ``play``, and ``loop``, a top-level item's index, the index
+    of the first it plays."""
     starts, out = [], []
-    for item in doc.rows:
+    for item in items:
         starts.append(len(out))
-        out += rows((item,), ())
-    loop = None if doc.loop is None else starts[doc.loop] if doc.loop < len(starts) else len(out)
-    return replace(_with(doc, "section", []), rows=tuple(out), loop=loop)
+        out += play(item)
+    loop = None if loop is None else starts[loop] if loop < len(starts) else len(out)
+    return tuple(out), loop
 
 
 def expanded(doc: Document) -> Document:
