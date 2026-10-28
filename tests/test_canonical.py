@@ -101,7 +101,7 @@ def test_the_commands_are_one_chain_in_vocabulary_order():
     event = list(first(tree, "def_phrase").find_data("event"))[2]
     assert [str(c) for c in event.children if isinstance(c, Token)] == ["C4", "i1", "2"]
     assert chain(event, "cmd_") == [
-        ("cmd_run", ["c1"]),
+        ("cmd_run", [" run:", "c1"]),
         ("cmd_ad", ["1"]),
         ("cmd_sr", ["2"]),
         ("cmd_ctrl", ["65"]),
@@ -795,7 +795,9 @@ def test_a_program_record_may_be_a_template_whose_rows_read_its_parameters():
     assert runs == [
         ("row_run", "CALL", "pt(b)"),
         ("row_run", "CALL", "fl(a)"),
+        ("cmd_run", "CMD_RUN", " run:"),
         ("cmd_run", "CALL", "arp(1,2)"),
+        ("cmd_run", "CMD_RUN", " run:"),
         ("cmd_run", "CTRL", "c1"),
     ]
 

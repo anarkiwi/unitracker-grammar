@@ -25,14 +25,19 @@
 // phrase or the song ([...]x2, a volta [body|end1|end2]) and named sections of song items
 // (section: s1:[play:[...],s2x2]) the song plays (" - s1", " - s1x2"). A binding written with !
 // after it fires once; lag and global are header lines the player reads.
+// Format 2.4 adds layers: a voice's concurrent programs of one kind, named in the header
+// (layers:{ctrl:[a,b]}) and started by a layer's prefix on an instrument's ctrl, pw or filter
+// field (b.ctrl:c7) and on a run (b.run:c7, b.run:none). A document is 2.4 exactly where it has a
+// layers line; without one each kind has one layer, and it is 2.3.
 
-start: "unitracker:2.3" _NL meta _NL _from_clock? "song:" _NL item+ ending
+start: FORMAT _NL meta _NL _from_clock? "song:" _NL item+ ending
 // the optional lines after meta, in order: a chain of rules, each the lines from one on, so
 // that the parser's tables stay linear in their number
 _from_clock: clock _NL _from_voices? | _from_voices
 _from_voices: voices _NL _from_tempo? | _from_tempo
 _from_tempo: tempo _NL _from_slots? | _from_slots
-_from_slots: slots _NL _from_order? | _from_order
+_from_slots: slots _NL _from_layers? | _from_layers
+_from_layers: layers _NL _from_order? | _from_order
 _from_order: order _NL _from_state? | _from_state
 _from_state: state _NL _from_regs? | _from_regs
 _from_regs: regs _NL _from_lag? | _from_lag
@@ -69,6 +74,14 @@ slot_mod: "mod:" (CALL | asm | qexpr | use_template) (_SEP slot_hold)? | slot_ho
 slot_hold: "hold:" events (_SEP slot_reset)? | slot_reset
 slot_reset: "reset:" events
 events: _LB HOLD_EVENT (_SEP HOLD_EVENT)* "]"
+
+// per program kind, in kind order, its layers in the order each phase runs them; a kind left
+// out has one
+layers: "layers:" _LC layers_ctrl "}"
+layers_ctrl: "ctrl:" layer_names (_SEP layers_pw)? | layers_pw
+layers_pw: "pw:" layer_names (_SEP layers_filter)? | layers_filter
+layers_filter: "filter:" layer_names
+layer_names: _LB NAME (_SEP NAME)* "]"
 
 // the phases of a tick in the order they run, each over the voices in order
 order: "order:" _LB PHASE (_SEP PHASE)* "]"
@@ -132,7 +145,7 @@ play: (PHRASE | phrase | use_phrase | PHRASE_CALL | use_template) SIGNED? | CONT
 instrument: _LC ins_ad "}"
 ins_ad: "ad:" _int (_SEP ins_sr)? | ins_sr
 ins_sr: "sr:" _int (_SEP ins_ctrl)? | ins_ctrl
-ins_ctrl: "ctrl:" (CTRL | CALL | program | use_ctrl | use_template) (_SEP ins_pw)? | ins_pw
+ins_ctrl: SLOT? "ctrl:" (CTRL | CALL | program | use_ctrl | use_template) (_SEP ins_ctrl)? | ins_pw
 ins_pw: SLOT? "pw:" (PW | NONE | modulation | use_pw | once) (_SEP ins_pw)? | ins_filter
 ins_filter: SLOT? "filter:" (FILTER | NONE | modulation | use_filter | once) (_SEP ins_filter)? | ins_freq
 ins_freq: SLOT? "freq:" (NONE | _binding | once) (_SEP ins_freq)? | ins_restart
@@ -163,7 +176,7 @@ row_route_on: "route_on:" _int (_SEP row_route_off)? | row_route_off
 row_route_off: "route_off:" _int (_SEP row_mode)? | row_mode
 row_mode: "mode:" _int (_SEP row_freq)? | row_freq
 row_freq: SLOT? "freq:" cell_value (_SEP row_freq)? | row_run
-row_run: "run:" (_program_ref | run_program) (_SEP row_vol)? | row_vol
+row_run: SLOT? "run:" (_program_ref | run_program) (_SEP row_run)? | row_vol
 row_vol: "vol:" _int
 
 note_value: SIGNED | NOTE | REL_PARAM
@@ -182,7 +195,7 @@ group: _LB body ("|" body)+ "]" | _LB body "]" TIMES
 body: _events
 // a phrase template's events may stand a parameter for a note
 event: (NOTE_ATOM | NOTE_PARAM) ("." (INS | instrument | use_ins | CALL | use_template))? cmd_run keep_pw keep_filter ("*" INT)?
-cmd_run: " run:" (_program_ref | run_program | NONE) cmd_pw | cmd_pw
+cmd_run: CMD_RUN (_program_ref | run_program | NONE) cmd_run | cmd_pw
 cmd_pw: CMD_PW (INT | _command | once) cmd_pw | cmd_ad
 cmd_ad: " ad:" INT cmd_sr | cmd_sr
 cmd_sr: " sr:" INT cmd_ctrl | cmd_ctrl
@@ -248,7 +261,10 @@ PHASE: "events" | "ctrl" | "pulse" | "filter" | "freq" | "pw" | "cut" | "read"
 HOLD_EVENT: /(?:step|last|read|note|legato)(?:-[1-9]\d*)?|row(?:\.[a-z]+)?/
 PROGRAM_KIND: /(?:ctrl|pw|filter)(?=\[)/
 _ASM.2: "asm{"
+// a slot's prefix, or a layer's on a program's field or a run
 SLOT: /[a-z][a-z0-9_]*\./
+FORMAT: /unitracker:2\.[34]/
+CMD_RUN: / (?:[a-z][a-z0-9_]*\.)?run:/
 CMD_PW: / (?:[a-z][a-z0-9_]*\.)?pw:/
 CMD_CUT: / (?:[a-z][a-z0-9_]*\.)?cut:/
 CMD_FREQ: / (?:[a-z][a-z0-9_]*\.)?freq:/
