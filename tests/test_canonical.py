@@ -852,7 +852,8 @@ def test_the_definitions_are_top_level_sections_after_the_templates():
     rows = [s.data for r in tree.find_data("row") for s in r.children if isinstance(s, Tree)]
     assert rows == ["plays"]
     assert keys(first(tree, "def_phrase")) == ["p1", "phrase"]
-    assert parse(PROGRAMS.replace("restart:\n hr(h,ad,sr):[{hold:h,gate:0,ad:ad,sr:sr},end]\n", ""))
+    undefined = PROGRAMS.replace("restart:\n hr(h,ad,sr):[{hold:h,gate:0,ad:ad,sr:sr},end]\n", "")
+    assert parse(undefined.replace("restart:hr(", "restart:rs("))
 
 
 @pytest.mark.parametrize(

@@ -28,8 +28,10 @@
 // Format 2.4 adds layers: a voice's concurrent programs of one kind, named in the header
 // (layers:{ctrl:[a,b]}) and started by a layer's prefix on an instrument's ctrl, pw or filter
 // field (b.ctrl:c7) and on a run (b.run:c7, b.run:none); and a song of one orderlist per voice,
-// each with its own ending (" - voice:[p1,p2+2|loop:1]"). A document is 2.4 exactly where it has
-// a layers line or voice orderlists; without them each kind has one layer, and it is 2.3.
+// each with its own ending (" - voice:[p1,p2+2|loop:1]"); and the prelude's restart program an
+// instrument's restart calls by its parameters (restart:hr(2,15,0), prelude.PROGRAMS), unless the
+// document defines its own. A document is 2.4 exactly where it has a layers line, voice
+// orderlists or such a call; without them each kind has one layer, and it is 2.3.
 
 start: FORMAT _NL meta _NL _from_clock? "song:" _NL (item+ ending | voice+)
 // the optional lines after meta, in order: a chain of rules, each the lines from one on, so

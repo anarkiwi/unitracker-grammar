@@ -149,3 +149,47 @@ def test_a_song_of_orderlists_prints_only_voices():
         printed(replace(doc, rows=doc.rows + (SongRow(["p1", "p1"]),)))
     with pytest.raises(CanonicalError, match="one Voice per voice"):
         printed(replace(doc, loop=0))
+
+
+RESTART = (
+    "unitracker:2.4\n"
+    "meta:{title:T}\n"
+    "ins:\n"
+    " i1:{ad:9,restart:hr(2,15,0)}\n"
+    " i2:{restart:hr(1,15,0,1,1)}\n"
+    " hri(a):{sr:a,restart:hr(6,a,0,0,1)}\n"
+    "phrase:\n"
+    " p1:[C4.i1,D.i2,E.hri(3)]\n"
+    "song:\n"
+    " - play:[p1]\n"
+    " - end\n"
+)
+
+
+def core_text(text: str) -> str:
+    return printed(expanded(read(text)))
+
+
+def test_a_prelude_restart_reads_prints_and_expands_to_its_rows():
+    assert printed(read(RESTART)) == RESTART and read(RESTART).version == "2.4"
+    out = printed(expanded(read(RESTART)))
+    assert out.startswith("unitracker:2.3\n")
+    assert " i1:{ad:9,restart:[{hold:2,gate:0,ad:15,sr:0},{},end]}\n" in out
+    assert " i2:{restart:[{mask:8,gate:0,ad:15,sr:0,run:ctrl[end]},{mask:0},end]}\n" in out
+    assert " i3:{sr:3,restart:[{hold:6,gate:0,ad:3,sr:0,run:ctrl[end]},{},end]}\n" in out
+
+
+def test_a_document_s_own_hr_is_its_own_and_2_3():
+    own = RESTART.replace("ins:\n", "restart:\n hr(h,a,s):[{hold:h,ad:a,sr:s},{},end]\nins:\n")
+    own = own.replace("hr(1,15,0,1,1)", "hr(1,15,0)").replace("hr(6,a,0,0,1)", "hr(6,a,0)")
+    own = own.replace("2.4", "2.3")
+    assert read(own).version == "2.3" and " i1:{ad:9,restart:hr(2,15,0)}\n" in core_text(own)
+    for text in (own.replace("2.3", "2.4"), RESTART.replace("2.4", "2.3")):
+        with pytest.raises(CanonicalError, match="exactly where"):
+            parse(text)
+
+
+@pytest.mark.parametrize("call", ["hr(2,15)", "hr(2,15,0,0,0,0)", "hr(0,15,0)"])
+def test_a_prelude_restart_takes_a_lead_of_a_tick_or_more_and_3_to_5_integers(call):
+    with pytest.raises(CanonicalError, match="hr"):
+        expanded(read(RESTART.replace("hr(2,15,0)", call)))

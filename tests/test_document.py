@@ -98,7 +98,7 @@ def built() -> Document:
         Event("E1", None, {"freq": 256, "mode": 16, "vol": 15, "ad": 1, "sr": 2, "tempo": 8}),
         Event("-", None, [("run", NONE), ("cut", Expr("min(v,1)")), ("pw", Call("ptab"))]),
         Event("-", None, [("pw", Call("ptab")), ("pw", RESET), ("tick.freq", RESET)]),
-        Event("C4", Instrument({"ctrl": Call("arp", (7, 4)), "restart": Call("hr", (2,))})),
+        Event("C4", Instrument({"ctrl": Call("arp", (7, 4)), "restart": Call("rs", (2,))})),
         Event("-", None, {"run": Call("arp", (3, 4))}),
     ]
     defs = {

@@ -347,8 +347,12 @@ class Document(_Node):  # pylint: disable=too-many-instance-attributes
 
     @property
     def version(self) -> str:
-        """The format of the version line: VERSION_2_4 where it has layers or orderlists."""
-        return VERSION_2_4 if self.header.layers is not None or self.voiced else VERSION
+        """The format of the version line: VERSION_2_4 where it has layers, orderlists or a
+        call of a prelude program."""
+        from unitracker_grammar.expand import prelude_calls  # pylint: disable=C0415,R0401
+
+        later = self.header.layers is not None or self.voiced or prelude_calls(self)
+        return VERSION_2_4 if later else VERSION
 
     def records(self, kind: str) -> dict:
         """Every record of ``kind``, ``{name: value}``; ``mod`` the templates."""
