@@ -21,11 +21,11 @@ from unitracker_grammar.model import (  # pylint: disable=unused-import
     END,
     HOLD,
     KINDS,
-    LAYERED,
     LAYERED_KINDS,
     NONE,
     RESET,
     VERSION,
+    VERSION_2_4,
     Code,
     Def,
     Document,
@@ -44,6 +44,7 @@ from unitracker_grammar.model import (  # pylint: disable=unused-import
     Signed,
     Slot,
     SongRow,
+    Voice,
     _CELL,
     base,
     signature,
@@ -55,11 +56,11 @@ __all__ = [
     "END",
     "HOLD",
     "KINDS",
-    "LAYERED",
     "LAYERED_KINDS",
     "NONE",
     "RESET",
     "VERSION",
+    "VERSION_2_4",
     "Call",
     "Code",
     "Def",
@@ -79,6 +80,7 @@ __all__ = [
     "Signed",
     "Slot",
     "SongRow",
+    "Voice",
     "base",
     "first_use",
     "printed",
@@ -191,7 +193,7 @@ class _ToModel(Transformer):
     def start(children):
         head, body = {}, {"rows": [], "defs": []}
         for c in children[1:]:
-            if isinstance(c, (SongRow, Part, Group)):
+            if isinstance(c, (SongRow, Part, Group, Voice)):
                 body["rows"].append(c)
             elif isinstance(c, Section):
                 body["defs"].append(c)
@@ -306,7 +308,13 @@ class _ToModel(Transformer):
     def section(children):
         return tuple(children)
 
-    items = body = section
+    items = body = voice_items = section
+
+    @staticmethod
+    def voice(children):
+        last = children[-1]
+        loop = int(last) if last.type == "INT" else None
+        return Voice(tuple(c for c in children if not isinstance(c, Token)), loop)
 
     @staticmethod
     def group(children):
@@ -314,7 +322,7 @@ class _ToModel(Transformer):
             return Group(children[0], _leaf(children[-1]))
         return Group(children[0], None, tuple(children[1:]))
 
-    song_group = group
+    song_group = voice_group = group
 
     @staticmethod
     def once(children):
@@ -335,6 +343,8 @@ class _ToModel(Transformer):
             return str(first)
         phrase = _leaf(first) if isinstance(first, Token) else first
         return Play(phrase, Signed(children[1]) if len(children) > 1 else None)
+
+    voice_play = play
 
     @staticmethod
     def use(children):
@@ -564,6 +574,11 @@ def _item(item) -> str:
     if isinstance(item, Part):
         times = "" if item.times is None else f"x{item.times}"
         return _binding(item.section) + times
+    if isinstance(item, Voice):
+        end = "end" if item.loop is None else f"loop:{item.loop}"
+        return f"voice:[{','.join(_item(i) for i in item.play)}|{end}]"
+    if isinstance(item, Play):
+        return _play(item)
     return _group(item, lambda items: ",".join(_item(i) for i in items))
 
 
@@ -594,7 +609,7 @@ def _slot(slot: Slot) -> list:
 
 
 def _header(head: Header) -> list:
-    lines = [f"unitracker:{head.version}\n", f"meta:{_map(head.meta)}\n"]
+    lines = [f"meta:{_map(head.meta)}\n"]
     if head.clock is not None:
         rounding = "".join(f",rounding:{r}" for r in head.clock[2:])
         lines.append(
@@ -646,12 +661,17 @@ def printed(doc: Document) -> str:
         raise CanonicalError("a document has a meta and song items, each row with a play entry")
     if kinds != sorted(set(kinds), key=KINDS.index) or not all(s.records for s in doc.defs):
         raise CanonicalError(f"sections {kinds}: each once, with records, in the order {KINDS}")
+    voices = [r for r in doc.rows if isinstance(r, Voice)]
+    if voices and (
+        len(voices) < len(doc.rows) or doc.loop is not None or not all(r.play for r in voices)
+    ):
+        raise CanonicalError("a song of orderlists is one Voice per voice, each with an entry")
     return "".join(_lines(doc))
 
 
 def _lines(doc: Document) -> list:
     """The canonical lines of ``doc``."""
-    lines = _header(doc.header)
+    lines = [f"unitracker:{doc.version}\n"] + _header(doc.header)
     if doc.tables:
         lines.append("tables:\n")
         lines += [f" {k}:{_flat(tuple(v))}\n" for k, v in doc.tables]
@@ -665,7 +685,8 @@ def _lines(doc: Document) -> list:
         lines.append(f"init:{_events(doc.init, phrase=False)}\n")
     lines.append("song:\n")
     lines += [f" - {_item(item)}\n" for item in doc.rows]
-    lines.append(" - end\n" if doc.loop is None else f" - {{loop:{doc.loop}}}\n")
+    if not doc.voiced:
+        lines.append(" - end\n" if doc.loop is None else f" - {{loop:{doc.loop}}}\n")
     return lines
 
 
@@ -693,6 +714,7 @@ _FIELDS = {
     Play: {"phrase": "phrase"},
     Part: {"section": "section"},
     SongRow: {"play": None},
+    Voice: {"play": None},
     Group: {"body": _SAME, "endings": _SAME},
     Slot: {"mod": "mod"},
 }

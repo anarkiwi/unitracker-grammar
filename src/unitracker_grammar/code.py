@@ -560,9 +560,9 @@ def check_document(tree: Tree) -> Tree:
     reading no parameter), its tables (every table an expression or code reads is defined),
     an expression outside a template reads no parameter nor names a template, and a pulse or
     filter record that is one binding is written as that binding, and the format is 2.4 exactly
-    where a layers line declares layers (CanonicalError)."""
-    if tree.children[0].endswith("2.4") != bool(_top(tree, "layers")):
-        raise CanonicalError("a document is format 2.4 exactly where it has a layers line")
+    where it has a layers line or voice orderlists (CanonicalError)."""
+    if tree.children[0].endswith("2.4") != bool(_top(tree, "layers") or _top(tree, "voice")):
+        raise CanonicalError("a document is format 2.4 exactly where it has layers or orderlists")
     names = {n for variables in state(tree).values() for n, _ in variables}
     uses = list(first_uses(tree))
     _scope(tree, uses)

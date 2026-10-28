@@ -1,5 +1,5 @@
-"""Format 2.4's layers: the header line, a layer's prefix on an instrument's program field and on
-a run, read and printed in their one text."""
+"""Format 2.4: layers (the header line, a layer's prefix on an instrument's program field and on
+a run) and voice orderlists, read and printed in their one text and expanded."""
 
 import pytest
 
@@ -11,11 +11,14 @@ from unitracker_grammar.document import (
     Header,
     Instrument,
     Program,
+    Play,
     Section,
     SongRow,
+    Voice,
     first_use,
     printed,
     read,
+    replace,
     top_level,
 )
 from unitracker_grammar.expand import expanded
@@ -46,7 +49,7 @@ def test_a_layered_document_reads_and_prints_its_one_text():
     doc = read(LAYERED)
     assert printed(doc) == LAYERED
     assert doc.header.layers == (("ctrl", ("a", "b")), ("filter", ("x", "y")))
-    assert doc.header.version == "2.4"
+    assert doc.version == "2.4"
     assert doc.records("ins")["i1"].fields[1:3] == (("ctrl", "c1"), ("b.ctrl", "c2"))
     first = doc.records("phrase")["p1"][0]
     assert first.commands == (("b.run", "c2"), ("run", "c1"), ("b.run", "none"))
@@ -90,6 +93,59 @@ def test_a_header_prints_its_layers_in_kind_order_and_its_version():
     assert text.startswith("unitracker:2.4\nmeta:{title:T}\nlayers:{ctrl:[a,b],filter:[x]}\n")
     assert " i1:{b.ctrl:[{sr:0},end]}\n" in text and "C4.i1 b.run:c1=[{ad:1},end]" in text
     assert read(text) == doc
-    assert Header(meta={"title": "T"}).version == "2.3"
+    assert replace(doc, header=Header(meta={"title": "T"})).version == "2.3"
     with pytest.raises(ValueError, match="restart"):
         Header(layers={"restart": ["a"]})
+
+
+VOICED = (
+    "unitracker:2.4\n"
+    "meta:{title:T}\n"
+    "voices:2\n"
+    "phrase:\n"
+    " p1:[C4,-]\n"
+    " p2:[D4]\n"
+    "song:\n"
+    " - voice:[p1,[p2,p1+2]x2,[p1|p2|p1+1]|loop:1]\n"
+    " - voice:[p2+1,p3=[E4,-]|end]\n"
+)
+
+
+def test_voice_orderlists_read_and_print_their_one_text():
+    doc = read(VOICED)
+    assert printed(doc) == VOICED and doc.version == "2.4" and doc.loop is None
+    assert doc.rows[0].loop == 1 and doc.rows[1].loop is None
+    assert doc.rows[1].play[0] == Play("p2", 1)
+    assert "p3:[E4,-]" in printed(top_level(doc))
+
+
+def test_voice_orderlists_expand_their_groups_and_their_loop_to_its_first_entry():
+    out = expanded(read(VOICED))
+    assert out.rows[0] == Voice(
+        ("p1", "p2", Play("p1", 2), "p2", Play("p1", 2), "p1", "p2", "p1", Play("p1", 1)), 1
+    )
+    looped = read(VOICED.replace("|loop:1]", "|loop:2]"))
+    assert expanded(looped).rows[0].loop == 5
+
+
+@pytest.mark.parametrize(
+    "old, new",
+    [
+        ("unitracker:2.4", "unitracker:2.3"),
+        ("|end]\n", "|end]\n - end\n"),
+        (" - voice:[p2+1", " - play:[p2+1"),
+        ("[p2+1,", "[[C4]+1,"),
+        ("|end]", "]"),
+    ],
+)
+def test_an_orderlist_is_2_4_alone_in_its_song_of_entries_and_groups(old, new):
+    with pytest.raises(CanonicalError):
+        parse(VOICED.replace(old, new))
+
+
+def test_a_song_of_orderlists_prints_only_voices():
+    doc = read(VOICED)
+    with pytest.raises(CanonicalError, match="one Voice per voice"):
+        printed(replace(doc, rows=doc.rows + (SongRow(["p1", "p1"]),)))
+    with pytest.raises(CanonicalError, match="one Voice per voice"):
+        printed(replace(doc, loop=0))

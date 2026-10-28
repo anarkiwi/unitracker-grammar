@@ -142,9 +142,26 @@ layer. A layer's prefix names it where a program starts, as a slot's prefix name
 | a program row's `run`, repeating | `{b.run:c7,run:c1}`, `b.run:arp(7,4)`, `b.run:ctrl[...]` |
 | a ` run:` command, repeating | ` b.run:c7 run:c1`, ` b.run:none` |
 
-An unprefixed field or run names the kind's first layer. A document is format 2.4 exactly where
-it has a `layers` line (`Header.version`), so every 2.3 document reads and prints as before; the
-version line is `2.4` with one and `2.3` without. What layers play is unitracker-player's
+An unprefixed field or run names the kind's first layer.
+
+Voice orderlists: a song may instead be one orderlist per voice, each with its own ending, so
+voices that loop independently need not be written out to the common multiple of their loops:
+
+```text
+song:
+ - voice:[p1,[p2,p1+2]x2,[p1|p2|p1+1]|loop:1]
+ - voice:[p2+1,p3=[E4,-]|end]
+```
+
+A voice's entries are play entries (a phrase's name, a phrase template's call or a phrase at its
+first use, each with its transpose) and groups of them (`[...]x2`, a volta); an inline phrase is
+not one, and neither is `~` or `end`. After `|`, `end` or `loop:k`, the top-level entry `k` it
+continues at (`expand` maps it to the first entry that entry plays). A song is rows or
+orderlists, not both; a document with orderlists has no `{loop:k}` or `end` line
+(`Voice(play, loop)` in `Document.rows`, `Document.voiced`).
+
+A document is format 2.4 exactly where it has a `layers` line or orderlists (`Document.version`),
+so every 2.3 document reads and prints as before. What they play is unitracker-player's
 [semantics](https://github.com/anarkiwi/unitracker-player/blob/main/docs/semantics.md#layers).
 
 ## Install
@@ -276,7 +293,7 @@ doc = replace(doc, loop=None)                                # edits are datacla
 | class | holds |
 |---|---|
 | `Document(header, tables, mods, defs, init, rows, loop)` | `tables` `{name: ints}`; `mods` the templates `(signature, Expr \| Code)`; `defs` the `restart`, `ins`, `ctrl`, `pw`, `filter`, `phrase` and `section` sections in that order (`Section`s, or `{kind: [(name, value)]}`); `init` events or None; `rows` song items (SongRows, or play entry lists, Parts and Groups); `loop` the item it loops to, None for `end` |
-| `Header(meta, clock, voices, tempo, slots, layers, order, state, regs, lag, global_cells)` | each line, None where not written (the version line is `version`: `LAYERED`, `"2.4"`, with `layers`, else `VERSION`, `"2.3"`); `layers` `{kind: names}` in `LAYERED_KINDS` order; `clock` `(cycles_per_tick, clock_hz)`, or with `"floor"` third; `meta` texts as written (`"'A, B'"` quoted); `slots` `{cell: [Slot]}`, `state` `{cell: [(name, size)]}`; `slot(cell)` its Slots |
+| `Header(meta, clock, voices, tempo, slots, layers, order, state, regs, lag, global_cells)` | each line, None where not written (the version line is `Document.version`: `VERSION_2_4`, `"2.4"`, with layers or orderlists, else `VERSION`, `"2.3"`); `layers` `{kind: names}` in `LAYERED_KINDS` order; `clock` `(cycles_per_tick, clock_hz)`, or with `"floor"` third; `meta` texts as written (`"'A, B'"` quoted); `slots` `{cell: [Slot]}`, `state` `{cell: [(name, size)]}`; `slot(cell)` its Slots |
 | `Slot(name, mod, hold, reset)` | a slot's default binding and its events (`"note-1"`, `"row.freq"`) |
 | `SongRow(play)` | play entries (`Play(phrase, transpose)`, `"~"`, `"end"`; a phrase is a name or inline events) |
 | `Section(kind, records)` | `(name, value)` records of one kind; a template's name is its `signature` (`arp(a,b)`), its rows reading parameters as strings (`ad: "a"`, `note: "+a"`, `Call("walk", ("b",))`); a `pw` or `filter` record `Program([{"pw": b}])` (`cut` for `filter`) is stored as `b` |
