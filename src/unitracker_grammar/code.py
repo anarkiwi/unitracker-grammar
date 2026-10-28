@@ -20,6 +20,7 @@ from unitracker_grammar import expr
 from unitracker_grammar.canonical import GRAMMAR, CanonicalError
 from unitracker_grammar.chords import CHORDS
 from unitracker_grammar.prelude import NAMES as PRELUDE
+from unitracker_grammar.prelude import PROGRAMS
 
 SYMBOLS = ("v", "phi", "nn", "ne")
 REGISTERS = ("a", "x", "y")
@@ -560,9 +561,8 @@ def check_document(tree: Tree) -> Tree:
     reading no parameter), its tables (every table an expression or code reads is defined),
     an expression outside a template reads no parameter nor names a template, and a pulse or
     filter record that is one binding is written as that binding, and the format is 2.4 exactly
-    where it has a layers line or voice orderlists (CanonicalError)."""
-    if tree.children[0].endswith("2.4") != bool(_top(tree, "layers") or _top(tree, "voice")):
-        raise CanonicalError("a document is format 2.4 exactly where it has layers or orderlists")
+    where it has a layers line, voice orderlists or a call of a prelude program it does not
+    define (CanonicalError)."""
     names = {n for variables in state(tree).values() for n, _ in variables}
     uses = list(first_uses(tree))
     _scope(tree, uses)
@@ -592,7 +592,23 @@ def check_document(tree: Tree) -> Tree:
     _short_records(tree)
     if clash := sorted((named | phrases(tree).keys()) & PRELUDE):
         raise CodeError(f"{clash} name prelude templates, which a document does not define")
+    _version(tree, named)
     return tree
+
+
+def _version(tree: Tree, named):
+    """CanonicalError unless the format is 2.4 exactly where the document has layers,
+    orderlists or a call of a prelude program it does not define."""
+    later = tree.children[0].endswith("2.4")
+    calls = any(
+        isinstance(t, Token) and t.type == "CALL" and _name(t) in PROGRAMS and _name(t) not in named
+        for node in tree.find_data("ins_restart")
+        for t in node.children
+    )
+    if later != bool(_top(tree, "layers") or _top(tree, "voice") or calls):
+        raise CanonicalError(
+            "a document is format 2.4 exactly where it has layers, orderlists or a prelude program"
+        )
 
 
 def _short_records(tree: Tree):

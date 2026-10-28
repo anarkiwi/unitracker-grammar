@@ -160,8 +160,22 @@ continues at (`expand` maps it to the first entry that entry plays). A song is r
 orderlists, not both; a document with orderlists has no `{loop:k}` or `end` line
 (`Voice(play, loop)` in `Document.rows`, `Document.voiced`).
 
-A document is format 2.4 exactly where it has a `layers` line or orderlists (`Document.version`),
-so every 2.3 document reads and prints as before. What they play is unitracker-player's
+Hard restart: an instrument's `restart` may call the prelude program
+`hr(lead,ad,sr,test,stop)` (`prelude.PROGRAMS`; `test` and `stop` optional, 0 or 1), which
+`expand` writes as the rows it stands for (`expand.hr`):
+
+| call | rows |
+|---|---|
+| `restart:hr(2,15,0)` | `[{hold:2,gate:0,ad:15,sr:0},{},end]` |
+| `restart:hr(1,15,0,1)` | `[{mask:8,gate:0,ad:15,sr:0},{mask:0},end]`: TEST set until the note |
+| `restart:hr(6,15,0,0,1)` | `[{hold:6,gate:0,ad:15,sr:0,run:ctrl[end]},{},end]`: the control program stopped |
+
+`lead` ticks (1 or more) before the note the gate goes off with the restart envelope; the note's
+row, the last, falls on the note. A document that defines its own `hr` template calls its own.
+
+A document is format 2.4 exactly where it has a `layers` line, orderlists or a call of a
+prelude program it does not define (`Document.version`), so every 2.3 document reads and prints
+as before. What they play is unitracker-player's
 [semantics](https://github.com/anarkiwi/unitracker-player/blob/main/docs/semantics.md#layers).
 
 ## Install

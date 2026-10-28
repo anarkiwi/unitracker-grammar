@@ -9,6 +9,7 @@ from lark import Token, Tree
 from unitracker_grammar import code as _code
 from unitracker_grammar.canonical import CanonicalError, parse
 from unitracker_grammar.chords import CHORDS
+from unitracker_grammar.prelude import PROGRAMS
 from unitracker_grammar.document import (
     KINDS,
     Call,
@@ -19,6 +20,8 @@ from unitracker_grammar.document import (
     Once,
     Part,
     Play,
+    Program,
+    Run,
     Section,
     SongRow,
     Voice,
@@ -29,7 +32,7 @@ from unitracker_grammar.document import (
     top_level,
 )
 
-__all__ = ["core", "expanded", "flat"]
+__all__ = ["core", "expanded", "flat", "hr", "prelude_calls"]
 
 _SUGAR = frozenset({"group", "song_group", "voice_group", "part", "def_section", "use_template"})
 _SUGAR |= {f"use_{k}" for k in KINDS}
@@ -135,6 +138,58 @@ def _with(doc: Document, kind: str, records: list) -> Document:
     return replace(
         doc, defs=tuple(sections[k] for k in KINDS if sections.get(k, Section(k)).records)
     )
+
+
+def hr(lead: int, ad: int, sr: int, test: int = 0, stop: int = 0) -> Program:
+    """The restart program ``hr(lead,ad,sr,test,stop)`` writes: ``lead`` ticks before the note
+    the gate off and the envelope ``ad``, ``sr``, with ``test`` the TEST bit set until the note,
+    with ``stop`` the control program stopped; the note's own row last."""
+    first = ({"hold": lead} if lead != 1 else {}) | ({"mask": 8} if test else {})
+    first |= {"gate": 0, "ad": ad, "sr": sr} | ({"run": Run("ctrl", Program())} if stop else {})
+    return Program([first, {"mask": 0} if test else {}])
+
+
+def _defined(doc: Document) -> set:
+    """The names of ``doc``'s templates, those at their first use among them."""
+    doc = top_level(doc)
+    return {
+        _code.signature(k)[0] for kind in ("mod",) + KINDS for k in doc.records(kind) if "(" in k
+    }
+
+
+def prelude_calls(doc: Document) -> bool:
+    """Whether an instrument's restart of ``doc`` calls a prelude program it does not define."""
+    found = []
+
+    def visit(value, site):
+        if site == "restart" and isinstance(value, Call) and value.name in PROGRAMS:
+            found.append(value.name)
+        return value
+
+    _order(doc, visit)
+    return bool(set(found) - _defined(doc))
+
+
+def _programs(doc: Document) -> Document:
+    """``doc`` with each instrument restart's call of a prelude program it does not define the
+    program's rows (:func:`hr`)."""
+    defined = _defined(doc)
+
+    def visit(value, site):
+        if site != "restart" or not isinstance(value, Call) or value.name not in PROGRAMS:
+            return value
+        if value.name in defined:
+            return value
+        params = PROGRAMS[value.name]
+        if not 3 <= len(value.args) <= len(params) or not all(
+            isinstance(a, int) for a in value.args
+        ):
+            raise CanonicalError(f"{value}: {value.name} takes 3 to {len(params)} integers")
+        if value.args[0] < 1:
+            raise CanonicalError(f"{value}: a restart's lead is a tick or more")
+        return hr(*value.args)
+
+    return _order(doc, visit)
 
 
 def flat(items: tuple) -> tuple:
@@ -252,7 +307,7 @@ def expanded(doc: Document) -> Document:
     names their intervals, each instrument template's call an instrument, each phrase
     template's call its phrase, and groups and sections played out; CanonicalError where a call
     does not fit its template."""
-    for step in (top_level, _named_chords, _instruments, _phrases, _song):
+    for step in (top_level, _named_chords, _instruments, _programs, _phrases, _song):
         doc = step(doc)
     return doc
 
@@ -266,6 +321,8 @@ def _sugar(node: Tree, token: Token) -> bool:
     if token.type != "CALL":
         return False
     if node.data in ("event", "def_ins", "use_ins"):
+        return True
+    if node.data == "ins_restart" and _code.call(token).name in PROGRAMS:
         return True
     return any(isinstance(a, str) and a in CHORDS for a in _code.call(token).args)
 
