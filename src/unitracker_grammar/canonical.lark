@@ -198,7 +198,7 @@ program: _LB (row_ _SEP)* (END | _LC LOOP INT "}") "]"
 modulation: program | _binding
 _binding: CALL | asm | fexpr | use_template
 // a binding that fires once, then leaves its slot unbound
-once: (INT | CALL | asm | qexpr | use_template) "!"
+once: (CALL | asm | qexpr | use_template) "!"
 _int: INT | PARAM
 
 row_: _LC "}" | _LC row_wait "}"

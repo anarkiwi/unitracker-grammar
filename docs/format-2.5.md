@@ -53,17 +53,25 @@ kind `ctrl`, run in the `ctrl` phase) nor an instrument's `ctrl` field, which is
 
 ### Values
 
-An integer on any cell (`ad:9`, `ctrl:65`, `vol:15`, ` res:4`, as before) sets the cell's value
-now, wrapped to its mask, and binds and stops nothing: the slots the cell has keep their bindings
-and fire on the new value. An integer is not a binding; `ad:9 + 0` is, a constant one. A template
-parameter stands for an integer where one is written as the whole value (`ad:a`).
+A plain integer is a write, on every cell and wherever a cell is set: a row, an event, an
+instrument or a slot default. In the cell's phase on the tick it applies, the cell takes that
+value wrapped to its mask, and the write ends the binding of the slot it is written to (a key
+without a prefix writes the cell's first slot), so it fires once and leaves that slot unbound.
+The cell's other slots keep their bindings and fire on the new value. `ad:9`, `ctrl:65`, `vol:15`,
+`pw:800` and `cut:7` are writes; `ad:9 + 0` is a binding, a constant one that fires every tick.
+Anything that is to keep firing is an expression or a call. A template parameter stands for an
+integer where one is written as the whole value (`ad:a`). There is no `n!` form: `!` follows a
+call, an expression or an `asm` block alone.
 
-Any other value binds or stops, as on `pw` and `cut`:
+On `freq` the integer forms (`freq:n`, `freq:+n`) mean `F(N) + n`, with `N` the voice's note at
+the tick the write applies, and that tick only; the slot is then unbound.
+
+Any other value binds or stops:
 
 | value | meaning |
 |---|---|
 | `m(3)`, `v + 4`, `asm{...}`, and in a command `'v + 4'` | binds the cell's slot to that modulator |
-| `...!` | a once binding |
+| `...!` | a once binding: fires once, then leaves its slot unbound |
 | `none`, `hold`, `reset` | the stops, as a row key and as a command; an instrument's field takes `none` alone |
 | `s.ad:...` | the slot `s` of the cell; a key without a prefix is the cell's first slot |
 

@@ -66,7 +66,6 @@ BINDINGS = {
     "reset": "reset",
     "m(3)!": Once(Call("m", (3,))),
     "'v - 1'!": Once(Expr("v - 1")),
-    "9!": Once(9),
 }
 
 
@@ -90,7 +89,7 @@ def test_a_cell_s_row_key_takes_a_slot_prefix_and_repeats(cell):
 
 @pytest.mark.parametrize("cell", NEW)
 @pytest.mark.parametrize(
-    "binding", ["m(3)", "'v - 1'", "asm{lda v; rts}", "none", "hold", "reset", "m(3)!", "7!"]
+    "binding", ["m(3)", "'v - 1'", "asm{lda v; rts}", "none", "hold", "reset", "m(3)!"]
 )
 def test_an_event_command_binds_or_stops_each_cell(cell, binding):
     text = events(f" {cell}:{binding}", f" t.{cell}:m(1)")
@@ -100,7 +99,7 @@ def test_an_event_command_binds_or_stops_each_cell(cell, binding):
 
 
 @pytest.mark.parametrize("field", ["ad", "sr"])
-@pytest.mark.parametrize("binding", ["m(3)", "v + 4", "asm{lda v; rts}", "none", "m(3)!", "9!"])
+@pytest.mark.parametrize("binding", ["m(3)", "v + 4", "asm{lda v; rts}", "none", "m(3)!"])
 def test_an_instrument_binds_ad_and_sr_and_ends_them_with_none(field, binding):
     text = doc("2.5", body=f"{MODS}ins:\n i1:{{{field}:{binding},t.{field}:m(2)}}\n")
     refused_as(text, "2.4")
@@ -404,7 +403,7 @@ def test_a_model_is_format_2_5_where_it_binds_a_new_cell_and_prints_its_version(
         "vol": Expr("v - 1"),
         "t.ad": 3,
         "res": Call("m", (1,)),
-        "route": Once(4),
+        "route": Once(Call("m", (4,))),
         "mode": "none",
         "ctrl": "hold",
         "sr": Code.of("rts"),
@@ -480,3 +479,11 @@ def test_the_core_of_a_2_5_document_keeps_its_constructs():
     assert out.startswith(f"unitracker:2.5\nmeta:{{title:T}}\n{head}")
     assert out.count(" vol:") == 4 and parse(out) is not None
     assert printed(read(out)) == out
+
+
+@pytest.mark.parametrize("cell", ["pw", "cut", "freq", *NEW])
+def test_an_integer_has_no_once_form(cell):
+    with pytest.raises(CanonicalError):
+        parse(rows(f"{cell}:9!", version="2.3"))
+    (row,) = read(rows(f"{cell}:9", version="2.3")).records("ins")["i1"].get("ctrl").rows
+    assert row.keys == ((cell, 9),)
