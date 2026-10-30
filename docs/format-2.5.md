@@ -40,12 +40,12 @@ its stops, and slots and state lines.
 | `cut` | song | `$07FF` | `$D415`, `$D416` | `cut` | `cut` | |
 | `res` | song | `$0F` | `$D417` bits 4-7 | `res` | `res` | |
 | `route` | song | `$0F` | `$D417` bits 0-3 | `route` | `route` | |
-| `mode` | song | `$70` | `$D418` bits 4-6 | `mode` | `mode` | |
+| `mode` | song | `$F0` | `$D418` bits 4-7 | `mode` | `mode` | |
 | `vol` | song | `$0F` | `$D418` bits 0-3 | `vol` | `vol` | |
 
 `unitracker_grammar.cells` holds the table (`CELLS`, `MASKS`, `VOICE_CELLS`, `SONG_CELLS`,
-`PHASES`). `mode` is the three filter-mode bits in their register position (`$10` low-pass, `$20`
-band-pass, `$40` high-pass); bit 7 of `$D418` is not a cell and the output keeps it 0. The
+`PHASES`). `mode` is `$D418`'s high nibble in its register position (`$10` low-pass, `$20`
+band-pass, `$40` high-pass, `$80` voice 3 off). The
 `ctrl` cell is the control byte; the gate and the mask keep their meaning (`$D404 + 7(i-1)` is
 `((ctrl ^ mask) & $FE) | (ctrl & gate & 1)`), and the cell is neither the control program (the
 kind `ctrl`, run in the `ctrl` phase) nor an instrument's `ctrl` field, which is that program.
