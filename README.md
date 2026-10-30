@@ -112,7 +112,7 @@ call stays a call.
 | first use | `C4.arpi(a,b)={...}(9,240)`, `riff(x,y)=[...](G1,f1)`, ` - s1=[...]x2` | the definition in its section |
 
 Core constructs a player reads: a binding written with `!` after it (`tick.freq:snap()!`,
-`pw:800!`, `{pw:'v + 3'!}`, an instrument's field) fires once, then leaves its slot unbound; `lag:k`
+`{pw:'v + 3'!}`, an instrument's field) fires once, then leaves its slot unbound, as does a plain integer (`pw:800`), with no `!` form; `lag:k`
 (after `regs`) outputs each frame's registers `k` calls late; `global:[cut]` makes the
 cutoff, its bindings and the filter program the song's, not the voice's that set them.
 

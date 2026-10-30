@@ -13,7 +13,6 @@ from unitracker_grammar.code import CodeError
 from unitracker_grammar.document import (
     Call,
     Group,
-    Once,
     Part,
     SongRow,
     first_use,
@@ -41,7 +40,7 @@ def core_text(text: str) -> str:
 SUGAR = doc(
     "ins:\n i1:{ad:9}\n arpi(a,b):{ad:a,sr:b,ctrl:ar(a,7)}\nctrl:\n"
     " ar(a,b):[{note:+a},{note:+b},{loop:0}]\nphrase:\n"
-    " p1:[C4.i1 run:ar(maj),[E,G]x2,[A|B|C5 pw:800!],-*2,D.arpi(3,4) tick.freq:vibrato(2,3,4)]\n"
+    " p1:[C4.i1 run:ar(maj),[E,G]x2,[A|B|C5 pw:800],-*2,D.arpi(3,4) tick.freq:vibrato(2,3,4)]\n"
     " riff(x,y):[x.i1,-,y tick.freq:'v + 1'!,E4]\nsection:\n"
     " s1:[play:[p1,p1,p1],s2=[play:[p1,~,~]]x3,[play:[p1,p1,p1]|play:[~,p1,~]|play:[p1,~,~]]]\n",
     " - play:[p1,riff(G1,f1)+2,tpl(x)=[x,-](C4)]\n - s1x2\n - s3=[play:[p1,p1,p1]]\n"
@@ -54,7 +53,7 @@ def test_every_construct_reads_and_prints_its_one_text():
     assert printed(model) == SUGAR
     p1 = model.records("phrase")["p1"]
     assert p1[1] == Group((p1[1].body[0], p1[1].body[1]), 2)
-    assert p1[2].endings and p1[2].endings[1][0].commands == (("pw", Once(800)),)
+    assert p1[2].endings and p1[2].endings[1][0].commands == (("pw", 800),)
     assert model.rows[1] == Part("s1", 2)
     assert model.rows[0].play[1].phrase == Call("riff", ("G1", "F#1"))
     assert isinstance(model.rows[3], Group) and model.rows[3].times == 2
@@ -75,8 +74,7 @@ def test_the_sugar_expands_to_the_core():
     out = core_text(SUGAR)
     assert " i2:{ad:3,sr:4,ctrl:ar(3,7)}\n" in out
     assert (
-        " p1:[C4.i1 run:ar(4,7),E,G,E,G,A,B,A,C5 pw:800!,-*2,D.i2 tick.freq:vibrato(2,3,4)]\n"
-        in out
+        " p1:[C4.i1 run:ar(4,7),E,G,E,G,A,B,A,C5 pw:800,-*2,D.i2 tick.freq:vibrato(2,3,4)]\n" in out
     )
     assert " - play:[p1,[G1.i1,-,f tick.freq:'v + 1'!,E4]+2,[C4,-]]\n" in out
     rows = out.split("song:\n")[1].splitlines()
@@ -146,12 +144,12 @@ def test_a_chord_name_is_its_intervals_but_a_template_parameter():
 
 def test_once_reads_in_commands_rows_and_fields():
     text = doc(
-        "ins:\n i1:{ad:9,pw:800!,freq:'v + 2'!}\nctrl:\n c1:[{pw:'v + 1'!,cut:7!},end]\n"
-        "phrase:\n p1:[C4.i1 pw:9! tick.freq:snap()!]\n"
+        "ins:\n i1:{ad:9,pw:800,freq:'v + 2'!}\nctrl:\n c1:[{pw:'v + 1'!,cut:7},end]\n"
+        "phrase:\n p1:[C4.i1 pw:9 tick.freq:snap()!]\n"
     )
     model = read(text)
     assert printed(model) == text
-    assert model.records("ins")["i1"].get("pw") == Once(800)
+    assert model.records("ins")["i1"].get("pw") == 800
 
 
 def test_lag_and_global_header_lines():
