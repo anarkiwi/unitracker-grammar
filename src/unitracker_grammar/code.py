@@ -18,6 +18,7 @@ from lark import Lark, Token, Transformer, Tree, exceptions
 
 from unitracker_grammar import expr
 from unitracker_grammar.canonical import GRAMMAR, CanonicalError
+from unitracker_grammar.cells import CELLS, LATER_CELLS, LATER_PHASES
 from unitracker_grammar.chords import CHORDS
 from unitracker_grammar.prelude import NAMES as PRELUDE
 from unitracker_grammar.prelude import PROGRAMS
@@ -291,6 +292,9 @@ def symbols(statements) -> tuple[str, ...]:
     )
 
 
+STATE_RULES = frozenset(f"state_{cell}" for cell in CELLS)
+
+
 def state(tree: Tree) -> dict[str, tuple[tuple[str, int], ...]]:
     """Per cell, in cell order, a document parse tree's state variables and their sizes;
     CanonicalError when a name is declared twice."""
@@ -298,7 +302,7 @@ def state(tree: Tree) -> dict[str, tuple[tuple[str, int], ...]]:
         node.data[6:]: tuple((str(v.children[0]), int(v.children[1])) for v in child.children)
         for top in _top(tree, "state")
         for node in top.iter_subtrees_topdown()
-        if node.data in ("state_freq", "state_pw", "state_cut")
+        if node.data in STATE_RULES
         for child in node.children
         if isinstance(child, Tree) and child.data == "state_vars"
     }
@@ -439,6 +443,22 @@ def reads(body: Tree) -> tuple[str, ...]:
 PROGRAM_KINDS = ("restart", "ctrl", "pw", "filter")
 
 
+_CELL_LINKS = frozenset(f"row_{c}" for c in LATER_CELLS) | {"ins_ad", "ins_sr"}
+
+
+def _cell_reads(value: Tree, out: list, declared, integer: bool):
+    """``out`` extended by the parameter a cell's value ``value`` is alone (any ``integer``
+    cell's, an integer position format 2.4 had, else only of a template of ``declared``
+    parameters); CodeError where a declared parameter is part of a larger expression."""
+    node = expr.Nodes().transform(value)
+    if (declared is None and not integer) or not expr.params(node):
+        return
+    if isinstance(node, ast.Name):
+        out.append(node.id)
+    elif expr.params(node) & set(declared or ()):
+        raise CodeError(f"{expr.printed(node)}: a parameter is a whole cell value")
+
+
 def _reads(node: Tree, out: list, skip=frozenset(), declared=None) -> list:
     """``out`` extended by the parameters ``node`` reads in order (see :func:`program_reads`),
     the subtrees whose ids are in ``skip`` left out; a cell value's names are a template's
@@ -457,14 +477,14 @@ def _reads(node: Tree, out: list, skip=frozenset(), declared=None) -> list:
                 )
         elif id(child) in skip:
             continue
-        elif child.data == "fexpr" and node.data in ("cell_value", "modulation"):
-            value = expr.Nodes().transform(child)
-            if declared is None or not expr.params(value):
-                continue
-            if isinstance(value, ast.Name):
-                out.append(value.id)
-            elif expr.params(value) & set(declared):
-                raise CodeError(f"{expr.printed(value)}: a parameter is a whole cell value")
+        elif child.data == "fexpr" and node.data in ("cell_value", "modulation", *_CELL_LINKS):
+            _cell_reads(child, out, declared, node.data in _CELL_LINKS)
+        elif child.data == "cell_value" and node.data in _CELL_LINKS:
+            inner = child.children[0]
+            if isinstance(inner, Tree) and inner.data == "fexpr":
+                _cell_reads(inner, out, declared, True)
+            else:
+                _reads(child, out, skip, declared)
         elif child.data == "run_program" and (inner := _reads(child, [], skip)):
             raise CodeError(f"an inline program reads no parameter, {inner[0]}")
         else:
@@ -560,9 +580,8 @@ def check_document(tree: Tree) -> Tree:
     :func:`signatures`, :func:`programs`), its anonymous code bodies (checked as templates,
     reading no parameter), its tables (every table an expression or code reads is defined),
     an expression outside a template reads no parameter nor names a template, and a pulse or
-    filter record that is one binding is written as that binding, and the format is 2.4 exactly
-    where it has a layers line, voice orderlists or a call of a prelude program it does not
-    define (CanonicalError)."""
+    filter record that is one binding is written as that binding, and the format is the latest
+    one whose constructs the document has (CanonicalError)."""
     names = {n for variables in state(tree).values() for n, _ in variables}
     uses = list(first_uses(tree))
     _scope(tree, uses)
@@ -596,18 +615,74 @@ def check_document(tree: Tree) -> Tree:
     return tree
 
 
+_LATER_KEYS = tuple(f"{p}_{c}" for p in ("row", "cmd") for c in LATER_CELLS)
+_LATER_KEYS += ("ins_ad", "ins_sr")
+_LINKS = ("row_", "cmd_", "ins_")
+_EXPRESSION = frozenset({"fexpr", "expr", "term", "factor"})
+
+
+def _plain(value) -> bool:
+    """Whether a cell's value in a parse tree is an integer or a template's parameter."""
+    while isinstance(value, Tree) and value.data in _EXPRESSION and len(value.children) == 1:
+        value = value.children[0]
+    return isinstance(value, Token) and value.type in ("INT", "PARAM")
+
+
+def _binds(link: Tree) -> bool:
+    """Whether a row's, an instrument's or a command's key in a parse tree binds a modulator or
+    stops one: a slot's prefix, or a value that is no integer nor parameter."""
+    for child in link.children:
+        if isinstance(child, Tree) and child.data.startswith(_LINKS):
+            continue
+        if isinstance(child, Token) and child.type.startswith("CMD_"):
+            if "." in child:
+                return True
+        elif isinstance(child, Token) and child.type == "SLOT":
+            return True
+        elif not _plain(child.children[0] if getattr(child, "data", "") == "cell_value" else child):
+            return True
+    return False
+
+
+def _later_node(node: Tree) -> bool:
+    """Whether one node of a document's parse tree is a construct of format 2.5."""
+    tokens = [c for c in node.children if isinstance(c, Token)]
+    if node.data == "global_cells":
+        return any(t.type != "GCUT" for t in tokens)
+    if node.data == "slot_cell":
+        return tokens[0] in LATER_CELLS
+    if node.data == "order":
+        return any(t in LATER_PHASES for t in tokens)
+    if node.data in STATE_RULES:
+        return node.data not in ("state_freq", "state_pw", "state_cut")
+    return node.data in _LATER_KEYS and _binds(node)
+
+
+def format_2_5(tree: Tree) -> bool:
+    """Whether a document's parse tree has a construct of format 2.5 (see
+    :func:`unitracker_grammar.features.uses`, which finds the same in the model)."""
+    if _top(tree, "calls") or _top(tree, "holds") or expr.later(tree):
+        return True
+    return any(_later_node(node) for node in tree.iter_subtrees())
+
+
 def _version(tree: Tree, named):
-    """CanonicalError unless the format is 2.4 exactly where the document has layers,
-    orderlists or a call of a prelude program it does not define."""
-    later = tree.children[0].endswith("2.4")
+    """CanonicalError unless the format is 2.5 exactly where the document has a construct 2.5
+    adds, else 2.4 exactly where it has layers, orderlists or a call of a prelude program it does
+    not define."""
     calls = any(
         isinstance(t, Token) and t.type == "CALL" and _name(t) in PROGRAMS and _name(t) not in named
         for node in tree.find_data("ins_restart")
         for t in node.children
     )
-    if later != bool(_top(tree, "layers") or _top(tree, "voice") or calls):
+    earlier = bool(_top(tree, "layers") or _top(tree, "voice") or calls)
+    wanted = "2.5" if format_2_5(tree) else "2.4" if earlier else "2.3"
+    if not tree.children[0].endswith(wanted):
         raise CanonicalError(
-            "a document is format 2.4 exactly where it has layers, orderlists or a prelude program"
+            f"a document is format {wanted} exactly where it has a construct of that format: "
+            "2.5 a calls, holds or global line but the cutoff's, a binding of ctrl, ad, sr, res, "
+            "route, mode or vol, a slots, state or order line for them, or an expression with "
+            "the bitwise, logic or wrap operators; 2.4 layers, orderlists or a prelude program"
         )
 
 

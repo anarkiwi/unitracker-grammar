@@ -5,7 +5,7 @@ import ast
 import pytest
 from lark import Tree
 
-from unitracker_grammar import frequency, parser
+from unitracker_grammar import expr, frequency, parser
 from unitracker_grammar.expr import (
     ExpressionError,
     Nodes,
@@ -81,7 +81,7 @@ def test_the_source_nests_each_operation_in_parentheses():
         ("sqrt(v)", "calls no grammar function"),
         ("abs(v, key=1)", "calls no grammar function"),
         ("U[1]", "unknown table 'U'"),
-        ("[v < 1]", "a comparison is written"),
+        ("[v < 1]", "outside the grammar"),
         ("(0 < v < 3)", "not one comparison"),
         ("(v in W)", "no grammar operator"),
         ("v ** 2", "outside the grammar"),
@@ -134,6 +134,19 @@ FORMS = [
     "(v + 1)*(phi - 1) % 7",
     "-(v + 1) + -v",
     "F(n + 12) - F(N) + n*phi",
+    "v | phi & N ^ n",
+    "~v & 255",
+    "!v && phi || N",
+    "!v == 0 && phi",
+    "v < phi",
+    "v + 1 == N << 2",
+    "ite(v < 3,v << 2,phi >> 1)",
+    "sx(lo(v)) + hi(u16(phi)) - u8(v > 1)",
+    "v << 1 + 2",
+    "(v | phi) << 2",
+    "-~v + ~~v",
+    "min(v < 3,2)",
+    "W[v & 3] | (v == 1)",
 ]
 
 
@@ -189,3 +202,178 @@ def test_a_template_s_parameters_bind_to_integers():
 def test_a_parameter_in_a_parse_tree_is_a_name():
     (node,) = (Nodes().transform(t) for t in _expressions("v + s*2"))
     assert params(node) == {"s"} and printed(node) == "v + 2*s"
+
+
+TEXTS = [
+    ("phi | v | N", "N | phi | v"),
+    ("v & (phi | N)", "v & (N | phi)"),
+    ("v | (phi | N)", "N | phi | v"),
+    ("N ^ phi ^ v", "N ^ phi ^ v"),
+    ("(v && phi) && N || n", "n || N && phi && v"),
+    ("v < phi && N >= 2 || !n", "!n || N >= 2 && v < phi"),
+    ("!(v && phi)", "!(phi && v)"),
+    ("!(v < phi)", "!(v < phi)"),
+    ("!v < phi", "!(v < phi)"),
+    ("(!v) < phi", "(!v) < phi"),
+    ("!!v", "!!v"),
+    ("!(v + 1)", "!(v + 1)"),
+    ("~(v + 1) & 255", "255 & ~(v + 1)"),
+    ("~~v", "~~v"),
+    ("-~v", "-~v"),
+    ("2*~v", "2*~v"),
+    ("~(-3)", "~(-3)"),
+    ("~(!v)", "~(!v)"),
+    ("v << 3 + 1", "v << 4"),
+    ("(v << 3) + 1", "(v << 3) + 1"),
+    ("v << (phi << 1)", "v << (phi << 1)"),
+    ("(v << 1) << 2", "v << 1 << 2"),
+    ("v - (phi >> 1)", "v - (phi >> 1)"),
+    ("1 + (v < 3)*5", "5*(v < 3) + 1"),
+    ("(v < 3) + (phi >= 2)*(N != 0)", "(N != 0)*(phi >= 2) + (v < 3)"),
+    ("v == phi", "v == phi"),
+    ("(v < phi) == (N < n)", "(v < phi) == (N < n)"),
+    ("(v + 1) < phi*2", "v + 1 < 2*phi"),
+    ("v < (phi | 1)", "v < 1 | phi"),
+    ("(v & 1) == 0", "1 & v == 0"),
+    ("ite(v < 3, 1 + v, 2)", "ite(v < 3,v + 1,2)"),
+    ("ite(!v, sx(lo(v)), hi(phi))", "ite(!v,sx(lo(v)),hi(phi))"),
+    ("min(v < 3, 2)", "min(2,v < 3)"),
+    ("v | phi & N", "v | N & phi"),
+    ("(v | phi) & N", "N & (phi | v)"),
+    ("v != 0 || phi != 0", "phi != 0 || v != 0"),
+]
+
+
+@pytest.mark.parametrize("text, one", TEXTS)
+def test_the_operators_have_one_text_with_the_parentheses_precedence_needs(text, one):
+    assert canonical(text) == one
+    assert canonical(one) == one
+    assert values(compile_expr(text, NS)) == values(compile_expr(one, NS))
+
+
+def test_the_precedence_is_playspec_s_from_loosest_to_tightest():
+    """``|| && ! cmp | ^ & shift +- */ unary``: each pair reads as its parenthesised form."""
+    pairs = [
+        ("a || b && c", "a || (b && c)"),
+        ("!a && b", "(!a) && b"),
+        ("!a == b", "!(a == b)"),
+        ("a == b | c", "a == (b | c)"),
+        ("a | b ^ c", "a | (b ^ c)"),
+        ("a ^ b & c", "a ^ (b & c)"),
+        ("a & b << c", "a & (b << c)"),
+        ("a << b + c", "a << (b + c)"),
+        ("a + b*c", "a + (b*c)"),
+        ("a*~b", "a*(~b)"),
+        ("-a*b", "(-a)*b"),
+        ("a << b << c", "(a << b) << c"),
+        ("a - b - c", "(a - b) - c"),
+    ]
+    for loose, tight in pairs:
+        assert ast.dump(tree(loose)) == ast.dump(tree(tight)), loose
+
+
+def test_the_logic_operators_give_1_or_0_over_any_integer():
+    fn = compile_expr("(v && phi) + 2*(v || phi) + 4*(!v) + 8*(!!v)", NS)
+    assert [fn(a, b, 0) for a, b in ((0, 0), (5, 0), (0, 3), (-2, 7))] == [4, 10, 6, 11]
+    assert compile_expr("(v < phi) + (v >= phi)", NS)(3, 3, 0) == 1
+
+
+@pytest.mark.parametrize(
+    "text, v, expected",
+    [
+        ("~v", 0, -1),
+        ("~v & 255", 5, 250),
+        ("-v & 255", 1, 255),
+        ("v << 4 | 3", 5, 83),
+        ("v >> 2", -9, -3),
+        ("lo(v)", 0x1234, 0x34),
+        ("lo(v)", -1, 255),
+        ("hi(v)", 0x1234, 0x12),
+        ("hi(v)", 0x12345, 0x23),
+        ("u8(v)", 0x1FF, 0xFF),
+        ("u16(v)", -1, 0xFFFF),
+        ("u16(v)", 0x12345, 0x2345),
+        ("sx(v)", 0x7F, 0x7F),
+        ("sx(v)", 0x80, 0xFF80),
+        ("sx(v)", 0x1FF, 0xFFFF),
+        ("sx(sx(v))", 0x80, 0xFF80),
+        ("ite(v, 7, 9)", 0, 9),
+        ("ite(v, 7, 9)", -3, 7),
+        ("ite(v > 2, v*2, -v)", 3, 6),
+    ],
+)
+def test_the_wraps_and_ite_follow_playspec_for_any_integer(text, v, expected):
+    assert compile_expr(text, NS)(v, 0, 0) == expected
+
+
+def test_a_shift_by_a_negative_count_raises_unless_zero():
+    with pytest.raises(ValueError):
+        compile_expr("v << phi", NS)(1, -1, 0)
+    zero = compile_expr("(v << phi) + (v >> phi)*8 + (v << 2)", NS, zero=True)
+    assert zero(1, -1, 0) == 4 and zero(8, 2, 0) == 32 + 16 + 32
+    assert source("v << 2 >> phi", (), zero=True) == "_shr((v << 2), phi)"
+    assert source("v << -1", (), zero=True) == "_shl(v, (-1))"
+
+
+@pytest.mark.parametrize(
+    "text, message",
+    [
+        ("v and phi", "logic is written"),
+        ("v or phi", "logic is written"),
+        ("not v", "logic is written"),
+        ("v if phi else N", "outside the grammar"),
+        ("v / 2", "outside the grammar"),
+        ("lo(v, 1)", "takes 1"),
+        ("ite(v, 1)", "takes 3"),
+        ("sx(1,2)", "takes 1"),
+        ("v & & phi", "bad expression"),
+        ("v < !phi", "bad expression"),
+        ("v @ phi", "outside the grammar"),
+        ("+v", "outside the grammar"),
+        ("(v < 1) < 2 < 3", "not one comparison"),
+    ],
+)
+def test_other_operator_texts_are_refused(text, message):
+    with pytest.raises(ExpressionError, match=message):
+        source(text, ["W"])
+
+
+@pytest.mark.parametrize(
+    "text, later",
+    [
+        ("v + 2*phi - N", False),
+        ("(v < 3)*5 + abs((phi >= 2))", False),
+        ("min((v == 1),2)", False),
+        ("((v != 1))", False),
+        ("W[(v == 1)]", False),
+        ("F(N + (v <= 2))", False),
+        ("v < 3", True),
+        ("(v < 3) + (phi < 2 + 1)", False),
+        ("min(v < 1,2)", True),
+        ("W[v < 1]", True),
+        ("F(v > 1)", True),
+        ("(v < 3) < 1", True),
+        ("v != 3", True),
+        ("v & 1", True),
+        ("v | 1", True),
+        ("v ^ 1", True),
+        ("v << 1", True),
+        ("v >> 1", True),
+        ("~v", True),
+        ("!v", True),
+        ("v && 1", True),
+        ("v || 1", True),
+        ("lo(v)", True),
+        ("hi(v)", True),
+        ("u8(v)", True),
+        ("u16(v)", True),
+        ("sx(v)", True),
+        ("ite(v,1,2)", True),
+    ],
+)
+def test_an_expression_is_format_2_5_where_it_has_what_2_4_lacked(text, later):
+    """The text's answer and its parse tree's are one: both are checked against the document's
+    format by its version line."""
+    assert expr.later(text) is later
+    (found,) = _expressions(text)
+    assert expr.later(found) is later

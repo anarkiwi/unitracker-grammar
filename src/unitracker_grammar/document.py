@@ -10,13 +10,13 @@ from lark import Token, Transformer, exceptions, v_args
 
 from unitracker_grammar import code as _code
 from unitracker_grammar.canonical import CanonicalError, absolute, parse
+from unitracker_grammar.cells import CELLS, LATER_CELLS
 from unitracker_grammar.code import Call
 from unitracker_grammar.model import (  # pylint: disable=unused-import
     _CMD_KEYS,
     _INS_KEYS,
     _INT,
     _ROW_KEYS,
-    CELLS,
     CONT,
     END,
     HOLD,
@@ -26,6 +26,7 @@ from unitracker_grammar.model import (  # pylint: disable=unused-import
     RESET,
     VERSION,
     VERSION_2_4,
+    VERSION_2_5,
     Code,
     Def,
     Document,
@@ -35,6 +36,7 @@ from unitracker_grammar.model import (  # pylint: disable=unused-import
     Header,
     Instrument,
     Once,
+    PARAM,
     Part,
     Play,
     Program,
@@ -61,6 +63,7 @@ __all__ = [
     "RESET",
     "VERSION",
     "VERSION_2_4",
+    "VERSION_2_5",
     "Call",
     "Code",
     "Def",
@@ -136,6 +139,12 @@ def _value(value):
     if isinstance(value, Expr) and _INT.fullmatch(value.text):
         return int(value.text)
     return value
+
+
+def _param(value):
+    """A cell's value where a template's parameter stands: its name."""
+    value = _value(value)
+    return value.text if isinstance(value, Expr) and PARAM.fullmatch(value.text) else value
 
 
 def _pair(values):
@@ -270,6 +279,22 @@ class _ToModel(Transformer):
     @staticmethod
     def lag(children):
         return ("lag", int(children[0]))
+
+    @staticmethod
+    def holds(children):
+        return ("holds", tuple(children))
+
+    @staticmethod
+    def hold_key(children):
+        return (str(children[0]), children[1])
+
+    @staticmethod
+    def calls(children):
+        return ("calls", (int(children[0]), children[1] if len(children) > 1 else None))
+
+    @staticmethod
+    def bits(children):
+        return tuple(int(c) for c in children)
 
     @staticmethod
     def global_cells(children):
@@ -415,8 +440,8 @@ class _ToModel(Transformer):
 
 
 for _name, _method in {
-    **{f"row_{k}": _link(k) for k in _ROW_KEYS},
-    **{f"ins_{k}": _link(k) for k in _INS_KEYS},
+    **{f"row_{k}": _link(k, normal=_param if k in LATER_CELLS else _value) for k in _ROW_KEYS},
+    **{f"ins_{k}": _link(k, normal=_param if k in ("ad", "sr") else _value) for k in _INS_KEYS},
     **{
         f"cmd_{k}": _link(k, normal=_token)
         for k in "run ad sr ctrl res route mode vol pw cut freq".split()
@@ -611,10 +636,7 @@ def _slot(slot: Slot) -> list:
 def _header(head: Header) -> list:
     lines = [f"meta:{_map(head.meta)}\n"]
     if head.clock is not None:
-        rounding = "".join(f",rounding:{r}" for r in head.clock[2:])
-        lines.append(
-            f"clock:{{cycles_per_tick:{head.clock[0]},clock_hz:{head.clock[1]}{rounding}}}\n"
-        )
+        lines.append(f"clock:{{cycles_per_tick:{head.clock[0]},clock_hz:{head.clock[1]}}}\n")
     if head.voices is not None:
         lines.append(f"voices:{head.voices}\n")
     if head.tempo is not None:
@@ -624,6 +646,8 @@ def _header(head: Header) -> list:
         lines.append(f"slots:{_flat(cells)}\n")
     if head.layers is not None:
         lines.append(f"layers:{_flat(list(head.layers))}\n")
+    if head.holds is not None:
+        lines.append(f"holds:{_flat([(k, tuple(e)) for k, e in head.holds])}\n")
     if head.order is not None:
         lines.append(f"order:{_flat(tuple(head.order))}\n")
     if head.state is not None:
@@ -632,6 +656,10 @@ def _header(head: Header) -> list:
         lines.append(f"regs:{_flat(head.regs)}\n")
     if head.lag is not None:
         lines.append(f"lag:{head.lag}\n")
+    if head.calls is not None:
+        frame, full = head.calls
+        pattern = "" if full is None else f",full:{_flat(full)}"
+        lines.append(f"calls:{{frame:{frame}{pattern}}}\n")
     if head.global_cells is not None:
         lines.append(f"global:{_flat(head.global_cells)}\n")
     return lines

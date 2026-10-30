@@ -4,8 +4,9 @@ import pytest
 from lark import Token, Tree
 
 from unitracker_grammar import expr
+from unitracker_grammar import code
 from unitracker_grammar.code import Statements, inline
-from unitracker_grammar.document import printed, read
+from unitracker_grammar.document import Header, printed, read
 from unitracker_grammar import (
     GRAMMAR,
     NTSC_HZ,
@@ -102,13 +103,13 @@ def test_the_commands_are_one_chain_in_vocabulary_order():
     assert [str(c) for c in event.children if isinstance(c, Token)] == ["C4", "i1", "2"]
     assert chain(event, "cmd_") == [
         ("cmd_run", [" run:", "c1"]),
-        ("cmd_ad", ["1"]),
-        ("cmd_sr", ["2"]),
-        ("cmd_ctrl", ["65"]),
-        ("cmd_res", ["15"]),
-        ("cmd_route", ["1"]),
-        ("cmd_mode", ["16"]),
-        ("cmd_vol", ["15"]),
+        ("cmd_ad", [" ad:", "1"]),
+        ("cmd_sr", [" sr:", "2"]),
+        ("cmd_ctrl", [" ctrl:", "65"]),
+        ("cmd_res", [" res:", "15"]),
+        ("cmd_route", [" route:", "1"]),
+        ("cmd_mode", [" mode:", "16"]),
+        ("cmd_vol", [" vol:", "15"]),
         ("cmd_cut", [" cut:", "wrap()"]),
         ("cmd_tempo", ["6", "7"]),
         ("cmd_vtempo", ["8"]),
@@ -298,6 +299,19 @@ def test_the_parser_is_built_once_from_the_packaged_grammar():
     """The grammar ships as package data and the parser is cached."""
     assert GRAMMAR.read_text(encoding="utf-8").startswith("// The canonical unitracker document")
     assert parser() is parser()
+
+
+def test_f_rounds_to_the_nearest_word_and_is_0_where_it_rounds_to_0_or_reaches_65536():
+    """``F(k)`` is ``round(440 * 2**((k - 57)/12) * 2**24 / clock_hz)``, 0 outside 1-65535."""
+    for clock in (PAL_HZ, NTSC_HZ):
+        words = [round(440 * 2 ** ((k - 57) / 12) * 2**24 / clock) for k in range(-130, 300)]
+        assert [frequency(k, clock) for k in range(-130, 300)] == [
+            w if 0 < w < 65536 else 0 for w in words
+        ]
+        assert table(clock) == [frequency(k, clock) for k in range(len(table(clock)))]
+        assert frequency(len(table(clock)), clock) == 0
+    with pytest.raises(TypeError):
+        frequency(57, PAL_HZ, "floor")  # pylint: disable=too-many-function-args
 
 
 def test_the_note_table_is_equal_temperament_from_a4_in_words_that_fit():
@@ -769,22 +783,30 @@ def test_a_program_record_may_be_a_template_whose_rows_read_its_parameters():
         for t in n.children
         if isinstance(t, Token) and t.type in ("PARAM", "REL_PARAM")
     ]
-    assert reads[:6] == [
+    assert reads == [
         ("row_hold", "h"),
-        ("row_ad", "ad"),
-        ("row_sr", "sr"),
-        ("row_ctrl", "a"),
         ("note_value", "+a"),
         ("row_wait", "a"),
+        ("row_gate", "b"),
+        ("note_value", "-b"),
     ]
-    assert [d for d, _ in reads[6:]] == [
-        "row_gate",
-        "note_value",
+    named = [
+        (n.data, str(c.children[0]))
+        for n in tree.iter_subtrees_topdown()
+        if n.data in ("row_ad", "row_sr", "row_ctrl", "row_res", "row_route", "row_mode", "row_vol")
+        for c in n.children
+        if isinstance(c, Tree) and c.data == "cell_value"
+    ]
+    assert {d for d, _ in named} == {
+        "row_ad",
+        "row_sr",
+        "row_ctrl",
         "row_res",
         "row_route",
         "row_mode",
         "row_vol",
-    ]
+    }
+    assert code.programs(tree)["hr"] == ("restart", ("h", "ad", "sr"))
     runs = [
         (n.data, t.type, str(t))
         for n in tree.iter_subtrees_topdown()
@@ -878,38 +900,14 @@ def test_other_top_level_definition_spellings_are_refused(old, new):
         parse(text)
 
 
-def test_the_note_table_rounds_to_the_nearest_word_or_down():
-    """``round`` (the default) and ``floor`` differ where the fraction is a half or more, and
-    the table stops at the same overflow."""
-    exact = [440 * 2 ** ((k - 57) / 12) * 2**24 / 985240 for k in range(95)]
-    assert table(985240, "floor") == [int(x) for x in exact]
-    assert table(985240) == [round(x) for x in exact]
-    assert frequency(57, 985240, "floor") == 7492 and frequency(57, 985240) == 7493
-    assert frequency(-98, rounding="floor") == 0 == frequency(95, 985240, "floor")
-    assert frequency(-97, rounding="floor") == 1 and frequency(-1, rounding="floor") == 262
-
-
-@pytest.mark.parametrize(
-    "line, clock",
-    [
-        (
-            "clock:{cycles_per_tick:19656,clock_hz:985240,rounding:floor}\n",
-            (19656, 985240, "floor"),
-        ),
-        ("clock:{cycles_per_tick:19656,clock_hz:985240}\n", (19656, 985240)),
-    ],
-)
-def test_the_clock_line_names_floor_rounding_and_leaves_round_out(line, clock):
+def test_the_clock_line_is_the_machine_s_and_names_no_rounding():
+    """``clock_hz`` is the real clock the standard note words are computed at; a rounding
+    is outside the grammar and the model."""
+    line = "clock:{cycles_per_tick:19656,clock_hz:985248}\n"
     text = doc(line)
-    assert read(text).header.clock == clock and printed(read(text)) == text
-    assert line in text
-
-
-def test_round_rounding_is_left_out_and_another_is_refused():
-    from unitracker_grammar.document import Header  # pylint: disable=import-outside-toplevel
-
-    assert Header(clock=(1, 2, "round")).clock == (1, 2)
-    with pytest.raises(ValueError):
-        Header(clock=(1, 2, "ceil"))
-    with pytest.raises(CanonicalError):
-        parse(doc("clock:{cycles_per_tick:1,clock_hz:2,rounding:round}\n"))
+    assert read(text).header.clock == (19656, 985248) and printed(read(text)) == text
+    for rounding in ("floor", "round"):
+        with pytest.raises(CanonicalError):
+            parse(doc(line.replace("}", f",rounding:{rounding}}}")))
+        with pytest.raises(ValueError, match="cycles_per_tick, clock_hz"):
+            Header(clock=(1, 2, rounding))
