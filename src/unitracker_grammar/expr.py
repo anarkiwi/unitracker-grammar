@@ -1,32 +1,114 @@
 """Modulator expressions: checked, printed in their one text and compiled to Python.
 
-Integer literals, ``+ - *``, ``//`` (floor division), ``%`` (floor modulo), ``abs``, ``min``,
-``max``, a comparison ``(a op b)`` as 1 or 0 (op one of ``== != < <= > >=``), ``v``, ``phi``,
-``N`` (the sounding note), ``n`` (the event note), ``F(k)`` (the frequency of note k) and
-``T[k]`` for a named table ``T``; a template also reads named parameters, lowercase names
-:func:`bind` replaces with integers. An expression is a stdlib :mod:`ast` node, read from a
-text by :func:`tree` or from a canonical parse tree by :class:`Nodes`.
+Integer literals, ``+ - *``, ``//`` (floor division), ``%`` (floor modulo), the bitwise ``| ^ &
+<< >> ~``, the comparisons ``== != < <= > >=`` and the logic ``&& || !`` (each 1 or 0, the logic
+over any integer, 0 false), ``abs``, ``min``, ``max``, the wraps ``lo`` ``hi`` ``u8`` ``u16``
+``sx``, ``ite(c,a,b)``, ``v``, ``phi``, ``N`` (the sounding note), ``n`` (the event note), ``F(k)``
+(the frequency of note k) and ``T[k]`` for a named table ``T``; a template also reads named
+parameters, lowercase names :func:`bind` replaces with integers. The operators have playspec's
+precedence, from the loosest ``||``, ``&&``, ``!``, a comparison, ``|``, ``^``, ``&``, the shifts,
+``+ -``, ``* // %``, to the unary ``~`` and ``-``. An expression is a stdlib :mod:`ast` node,
+read from a text by :func:`tree` or from a canonical parse tree by :class:`Nodes`.
 """
 
 import ast
 import copy
 import functools
+import re
 
-from lark import Token, Transformer
+from lark import Token, Transformer, Tree
 
 NAMES = ("v", "phi", "N", "n")
-CALLS = {"abs": 1, "min": 2, "max": 2, "F": 1}
+CALLS = {
+    "abs": 1,
+    "min": 2,
+    "max": 2,
+    "F": 1,
+    "lo": 1,
+    "hi": 1,
+    "u8": 1,
+    "u16": 1,
+    "sx": 1,
+    "ite": 3,
+}
 _CALLED = {"F": "_F"}
+_WRAPS = {
+    "lo": "({0} & 255)",
+    "u8": "({0} & 255)",
+    "hi": "(({0} >> 8) & 255)",
+    "u16": "({0} & 65535)",
+    "sx": "((_b := {0} & 255) | 65280 * (_b >> 7))",
+    "ite": "({1} if {0} else {2})",
+}
 _BINARY = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.FloorDiv: "//", ast.Mod: "%"}
+_BITWISE = {ast.BitOr: "|", ast.BitXor: "^", ast.BitAnd: "&"}
+_SHIFT = {ast.LShift: "<<", ast.RShift: ">>"}
 _COMPARE = {ast.Eq: "==", ast.NotEq: "!=", ast.Lt: "<", ast.LtE: "<=", ast.Gt: ">", ast.GtE: ">="}
-_OPERATOR = {text: op for op, text in (_BINARY | _COMPARE).items()}
-_GUARDED = {"//": "_div", "%": "_mod"}
+_OPERATOR = {text: op for op, text in (_BINARY | _BITWISE | _SHIFT | _COMPARE).items()}
+_OPERATORS = _BINARY | _BITWISE | _SHIFT
+_UNARY = {ast.USub: "(-{})", ast.Invert: "(~{})", ast.Not: "(0 if {} else 1)"}
+_GUARDED = {"//": "_div", "%": "_mod", "<<": "_shl", ">>": "_shr"}
 _PARAMS = "v, phi, N, n=0"
 _ATOMS = ("V", "PHI", "N", "EVENT_NOTE")
+_LOGIC = re.compile(r"&&|\|\||!(?!=)")
+_PYTHONIC = re.compile(r"\b(?:and|or|not)\b")
+_SPELLED = {"&&": " and ", "||": " or ", "!": " not "}
+_LATER_TOKENS = frozenset("OR AND NOT BOR BXOR BAND SHIFT INVERT LO HI U8 U16 SX ITE".split())
+_LATER_TEXT = re.compile(r"[|^&~]|<<|>>|!(?!=)|\b(?:lo|hi|u8|u16|sx|ite)\(")
+_COMPARING = re.compile(r"[()\[\]]|[=!<>]=|[<>]")
 
 
 class ExpressionError(ValueError):
     """A text is not an expression of the modulator grammar."""
+
+
+def later(node) -> bool:
+    """Whether the expression of ``node``, a parse tree, or of text ``node`` is format 2.5's: it
+    has an operator or function format 2.4 lacked, or a comparison not in parentheses of its own
+    (``(a < b)`` is 2.4's, in parentheses that hold nothing else)."""
+    if isinstance(node, str):
+        return _later_text(node)
+    stack = [(node, None, None)]
+    while stack:
+        found, parent, grand = stack.pop()
+        if found.data == "cmp" and not _grouped(parent, grand):
+            return True
+        for child in found.children:
+            if isinstance(child, Tree):
+                stack.append((child, found, parent))
+            elif child.type in _LATER_TOKENS:
+                return True
+    return False
+
+
+def _grouped(parent, grand) -> bool:
+    """Whether a comparison under ``parent`` and ``grand`` is the whole content of a pair of
+    parentheses (an ``expr`` in a ``factor`` that holds nothing else)."""
+    return (
+        parent is not None
+        and parent.data == "expr"
+        and grand is not None
+        and grand.data == "factor"
+        and not isinstance(grand.children[0], Token)
+    )
+
+
+def _later_text(text: str) -> bool:
+    """:func:`later` of an expression text."""
+    if _LATER_TEXT.search(text):
+        return True
+    groups = []
+    for found in _COMPARING.finditer(text):
+        sign = found[0]
+        if sign in "([":
+            before = text[: found.start()][-1:]
+            grouping = sign == "(" and not (before.isalnum() or before == "_")
+            groups.append("g" if grouping else sign)
+        elif sign in ")]":
+            groups.pop()
+        elif not groups or groups[-1] != "g":
+            return True
+    return False
 
 
 def written(text: str):
@@ -50,38 +132,51 @@ def _python(node, tables, zero: bool) -> str:
         if node.id not in NAMES:
             raise ExpressionError(f"unbound parameter {node.id!r}")
         return node.id
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        return f"(-{_python(node.operand, tables, zero)})"
-    if isinstance(node, ast.BinOp) and type(node.op) in _BINARY:
-        op = _BINARY[type(node.op)]
-        left, right = _python(node.left, tables, zero), _python(node.right, tables, zero)
-        if (
-            zero
-            and op in _GUARDED
-            and not (isinstance(node.right, ast.Constant) and node.right.value)
-        ):
-            return f"{_GUARDED[op]}({left}, {right})"
-        return f"({left} {op} {right})"
+    if isinstance(node, ast.UnaryOp) and type(node.op) in _UNARY:
+        return _UNARY[type(node.op)].format(_python(node.operand, tables, zero))
+    if isinstance(node, ast.BinOp) and type(node.op) in _OPERATORS:
+        return _binary(node, tables, zero)
+    if isinstance(node, ast.BoolOp):
+        join = " and " if isinstance(node.op, ast.And) else " or "
+        return f"(1 if {join.join(_python(v, tables, zero) for v in node.values)} else 0)"
     if isinstance(node, ast.Compare):
         return _comparison(node, tables, zero)
     if isinstance(node, ast.List):
-        raise ExpressionError(
-            f"{ast.unparse(node)!r} is outside the grammar: a comparison is written (a op b)"
-        )
+        raise ExpressionError(f"{ast.unparse(node)!r} is outside the grammar")
     if isinstance(node, ast.Call):
         name = node.func.id if isinstance(node.func, ast.Name) else None
         if node.keywords or name not in CALLS:
             raise ExpressionError(f"{ast.unparse(node)!r} calls no grammar function")
         if len(node.args) != CALLS[name]:
             raise ExpressionError(f"{name} takes {CALLS[name]} argument(s)")
-        args = ", ".join(_python(a, tables, zero) for a in node.args)
-        return f"{_CALLED.get(name, name)}({args})"
+        args = [_python(a, tables, zero) for a in node.args]
+        if name in _WRAPS:
+            return _WRAPS[name].format(*args)
+        return f"{_CALLED.get(name, name)}({', '.join(args)})"
     if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):
         name = node.value.id
         if name not in tables:
             raise ExpressionError(f"unknown table {name!r}")
         return f"_T[{name!r}]({_python(node.slice, tables, zero)})"
     raise ExpressionError(f"{ast.unparse(node)!r} is outside the grammar")
+
+
+def _binary(node, tables, zero: bool) -> str:
+    """One binary operation; with ``zero``, ``//`` and ``%`` by a divisor and a shift by a count
+    that is no literal of a safe sign call a guard returning 0."""
+    op = _OPERATORS[type(node.op)]
+    left, right = _python(node.left, tables, zero), _python(node.right, tables, zero)
+    if zero and op in _GUARDED and not _unguarded(op, node.right):
+        return f"{_GUARDED[op]}({left}, {right})"
+    return f"({left} {op} {right})"
+
+
+def _unguarded(op: str, right) -> bool:
+    """Whether a literal ``right`` makes ``op`` total: a divisor of 1 or more in absolute value,
+    a shift count of 0 or more."""
+    if not isinstance(right, ast.Constant):
+        return False
+    return right.value != 0 if op in ("//", "%") else right.value >= 0
 
 
 def _comparison(node, tables, zero: bool) -> str:
@@ -96,9 +191,12 @@ def _comparison(node, tables, zero: bool) -> str:
 
 
 def tree(text: str) -> ast.expr:
-    """The node of an expression text, unchecked."""
+    """The node of an expression text, unchecked: ``&&``, ``||`` and ``!`` are read as Python's
+    ``and``, ``or`` and ``not`` of the same precedence."""
+    if _PYTHONIC.search(text):
+        raise ExpressionError(f"bad expression {text!r}: logic is written && || !")
     try:
-        return ast.parse(text.strip(), mode="eval").body
+        return ast.parse(_LOGIC.sub(lambda m: _SPELLED[m[0]], text).strip(), mode="eval").body
     except SyntaxError as exc:
         raise ExpressionError(f"bad expression {text!r}: {exc.msg}") from exc
 
@@ -106,7 +204,9 @@ def tree(text: str) -> ast.expr:
 def source(expr: str | ast.expr, tables=(), zero: bool = False) -> str:
     """Python source over ``v``, ``phi``, ``N``, ``n``, ``_F`` and ``_T`` of an expression text or
     node; ``zero``: ``//`` and ``%`` by a divisor that is no nonzero literal call ``_div`` and
-    ``_mod``, 0 by a divisor of 0, else they raise ZeroDivisionError."""
+    ``_mod``, 0 by a divisor of 0, and a shift by a count that is no literal of 0 or more call
+    ``_shl`` and ``_shr``, 0 by a negative count; else they raise ZeroDivisionError and
+    ValueError."""
     return _python(tree(expr) if isinstance(expr, str) else expr, set(tables), zero)
 
 
@@ -117,9 +217,58 @@ def canonical(text: str) -> str:
 
 def printed(node) -> str:
     """The one text of expression node ``node``: sums and products as linear forms (constant
-    terms and factors folded, like terms merged), terms in one order, parentheses only where the
-    grammar needs them, and decimal literals."""
-    return _sum(*_linear(node))
+    terms and factors folded, like terms merged), the operands of ``|``, ``^``, ``&``, ``&&``,
+    ``||`` in one order, terms in one order, parentheses only where the
+    precedence needs them, and decimal literals."""
+    return _text(node, 0)
+
+
+_LEVELS = {ast.Or: 0, ast.And: 1, ast.Not: 2, ast.Compare: 3, ast.BitOr: 4, ast.BitXor: 5}
+_LEVELS |= {ast.BitAnd: 6, ast.LShift: 7, ast.RShift: 7}
+_LOGICAL = {ast.Or: " || ", ast.And: " && "}
+_CHAINED = {ast.BitOr: " | ", ast.BitXor: " ^ ", ast.BitAnd: " & "}
+_SUMMED = 8
+
+
+def _text(node, prec: int) -> str:
+    """The text of ``node``, in parentheses where it binds looser than level ``prec``."""
+    wide = _wide(node)
+    level, text = wide if wide else (_SUMMED, _sum(*_linear(node)))
+    return f"({text})" if level < prec else text
+
+
+def _flatten(node) -> list:
+    """The operands of a chain of ``node``'s operator, nested ones included."""
+    operands = node.values if isinstance(node, ast.BoolOp) else [node.left, node.right]
+    out = []
+    for operand in operands:
+        same = isinstance(operand, type(node)) and type(operand.op) is type(node.op)
+        out += _flatten(operand) if same else [operand]
+    return out
+
+
+def _wide(node) -> tuple[int, str] | None:
+    """``(level, text)`` of a logic, comparison, bitwise or shift node, None for another."""
+    # pylint: disable=too-many-return-statements
+    if isinstance(node, ast.BoolOp):
+        op = type(node.op)
+        texts = [_text(v, _LEVELS[op] + 1) for v in _flatten(node)]
+        return _LEVELS[op], _LOGICAL[op].join(sorted(texts, key=_order))
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        return _LEVELS[ast.Not], "!" + _tight(node.operand, ast.Not)
+    if isinstance(node, ast.Compare):
+        op = _COMPARE[type(node.ops[0])]
+        left, right = _text(node.left, 4), _text(node.comparators[0], 4)
+        return _LEVELS[ast.Compare], f"{left} {op} {right}"
+    if isinstance(node, ast.BinOp) and type(node.op) in _BITWISE:
+        op = type(node.op)
+        texts = [_text(v, _LEVELS[op] + 1) for v in _flatten(node)]
+        return _LEVELS[op], f" {_BITWISE[op]} ".join(sorted(texts, key=_order))
+    if isinstance(node, ast.BinOp) and type(node.op) in _SHIFT:
+        level = _LEVELS[type(node.op)]
+        left, right = _text(node.left, level), _text(node.right, level + 1)
+        return level, f"{left} {_SHIFT[type(node.op)]} {right}"
+    return None
 
 
 def _linear(node) -> tuple[int, dict]:
@@ -163,9 +312,10 @@ def _factor(node) -> str:
     # pylint: disable=too-many-return-statements
     if isinstance(node, ast.Name):
         return node.id
-    if isinstance(node, ast.Compare):
-        op = _COMPARE[type(node.ops[0])]
-        return f"({printed(node.left)} {op} {printed(node.comparators[0])})"
+    if wide := _wide(node):
+        return f"({wide[1]})"
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Invert):
+        return "~" + _tight(node.operand)
     if isinstance(node, ast.Call):
         args = [printed(a) for a in node.args]
         if node.func.id in ("min", "max"):
@@ -177,6 +327,16 @@ def _factor(node) -> str:
         left, right = _linear(node.left), _linear(node.right)
         return f"{_operand(*left, True)} {_BINARY[type(node.op)]} {_operand(*right)}"
     raise ExpressionError(f"{ast.unparse(node)!r} is outside the grammar")
+
+
+def _tight(node, *prefixes) -> str:
+    """The text of the operand of the prefix operator ``~`` (or ``!``, with ``ast.Not`` among
+    ``prefixes``): an atom, a call or another prefix operation, else parenthesised."""
+    text = _text(node, 0)
+    prefixed = isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.Invert, *prefixes))
+    atom = isinstance(node, (ast.Name, ast.Call, ast.Subscript)) or prefixed
+    atom = atom or isinstance(node, ast.Constant) and node.value >= 0
+    return text if atom else f"({text})"
 
 
 def _operand(const: int, terms: dict, left: bool = False) -> str:
@@ -235,6 +395,14 @@ def _mod(a: int, b: int) -> int:
     return a % b if b else 0
 
 
+def _shl(a: int, b: int) -> int:
+    return a << b if b >= 0 else 0
+
+
+def _shr(a: int, b: int) -> int:
+    return a >> b if b >= 0 else 0
+
+
 def compile_expr(expr: str | ast.expr, namespace: dict, zero: bool = False):
     """A function ``(v, phi, N, n=0) -> int`` of an expression text or node (``zero`` as in
     :func:`source`).
@@ -244,8 +412,9 @@ def compile_expr(expr: str | ast.expr, namespace: dict, zero: bool = False):
     """
     body = source(expr, namespace["_T"], zero)
     if zero:
+        guards = "_div, _mod, _shl, _shr"
         # pylint: disable-next=eval-used
-        return eval(f"lambda _div, _mod: lambda {_PARAMS}: {body}", namespace)(_div, _mod)
+        return eval(f"lambda {guards}: lambda {_PARAMS}: {body}", namespace)(_div, _mod, _shl, _shr)
     return eval(f"lambda {_PARAMS}: {body}", namespace)  # pylint: disable=eval-used
 
 
@@ -294,29 +463,40 @@ def indexed(values) -> functools.partial:
 
 
 class Nodes(Transformer):
-    """The expressions of a canonical parse tree (rules ``fexpr``, ``expr``, ``term`` and
-    ``factor``) as nodes; ``-`` before a literal is a negative literal."""
+    """The expressions of a canonical parse tree (rules ``fexpr``, ``expr`` and the rules of its
+    operators down to ``factor``) as nodes; ``-`` before a literal is a negative literal."""
 
     # pylint: disable=missing-function-docstring
 
     def fexpr(self, children):
         return children[0]
 
-    def expr(self, children):
+    def _chain(self, children):
         out = children[0]
         for op, operand in zip(children[1::2], children[2::2]):
             out = ast.BinOp(out, _OPERATOR[op.strip()](), operand)
         return out
 
-    term = expr
+    term = sum = shift = band = bxor = bor = _chain
+
+    def _logic(self, children):
+        if len(children) == 1:
+            return children[0]
+        return ast.BoolOp(ast.Or() if children[1].strip() == "||" else ast.And(), children[::2])
+
+    expr = land = _logic
+
+    def lnot(self, children):
+        return ast.UnaryOp(ast.Not(), children[1])
+
+    def cmp(self, children):
+        return ast.Compare(children[0], [_OPERATOR[children[1].strip()]()], [children[2]])
 
     def factor(self, children):
         # pylint: disable=too-many-return-statements
         head, *rest = children
         if not isinstance(head, Token):
-            if not rest:
-                return head
-            return ast.Compare(head, [_OPERATOR[rest[0].strip()]()], [rest[1]])
+            return head
         if head.type in ("INT", "SIGNED"):
             return ast.Constant(int(head))
         if head.type in _ATOMS or head.type == "PARAM":
@@ -328,4 +508,6 @@ class Nodes(Transformer):
             if isinstance(inner, ast.Constant):
                 return ast.Constant(-inner.value)
             return ast.UnaryOp(ast.USub(), inner)
+        if head.type == "INVERT":
+            return ast.UnaryOp(ast.Invert(), rest[0])
         return ast.Call(ast.Name(head[:-1]), rest, [])

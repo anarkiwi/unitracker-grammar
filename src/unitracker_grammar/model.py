@@ -6,18 +6,20 @@ from dataclasses import dataclass, field, fields
 from typing import NamedTuple
 
 from unitracker_grammar import code as _code
+from unitracker_grammar.cells import SONG_CELLS
 
-VERSION, VERSION_2_4 = "2.3", "2.4"
+VERSION, VERSION_2_4, VERSION_2_5 = "2.3", "2.4", "2.5"
 NONE, HOLD, RESET, CONT, END = "none", "hold", "reset", "~", "end"
 KINDS = ("restart", "ins", "ctrl", "pw", "filter", "phrase", "section")
-CELLS = ("freq", "pw", "cut")
 LAYERED_KINDS = ("ctrl", "pw", "filter")
 _INT = re.compile(r"\d+")
+PARAM = re.compile(r"(?!(?:v|phi|n|nn|ne|none|hold|reset|(?:pw|[cfiprs])\d+)\b)[a-z][a-z0-9_]*")
 _ROW_KEYS = (
     "wait hold ctrl mask gate note ad sr pw cut res route route_on route_off mode freq run vol"
 ).split()
 _INS_KEYS = "ad sr ctrl pw filter freq restart".split()
 _CMD_KEYS = "run pw ad sr ctrl res route mode vol cut tempo vtempo freq legato".split()
+_HOLD_EVENT = re.compile(r"(?:step|last|read|note|legato)(?:-[1-9]\d*)?|row(?:\.([a-z]+))?")
 
 
 class Signed(int):
@@ -271,15 +273,54 @@ class Slot(_Node):
     reset: tuple | None = None
 
 
+def _calls(frame: int, full=None) -> tuple:
+    """The ``calls`` line's ``(frame, full)``: ``frame`` calls make a frame, and ``full`` (None:
+    all) is the pattern of 0 and 1 the calls repeat, with a full call in it."""
+    if not isinstance(frame, int) or frame < 1:
+        raise ValueError(f"calls: a frame is {frame} calls, 1 or more")
+    if full is None:
+        return frame, None
+    full = tuple(full)
+    if not full or set(full) - {0, 1} or not any(full):
+        raise ValueError(f"calls: full {full} is 0s and 1s with a 1")
+    return frame, full
+
+
+def _holds(pairs, layers: dict) -> tuple:
+    """The ``holds`` line's ``(key, events)`` pairs, ``key`` a program kind or a layer's name:
+    events as a slot holds on, a control program holding on none of the rows it applies."""
+    pairs = tuple((k, tuple(e)) for k, e in _pairs(pairs))
+    names = {n for ns in layers.values() for n in ns}
+    kinds = {n: k for k, ns in layers.items() for n in ns}
+    keys = [k for k, _ in pairs]
+    if len(set(keys)) != len(keys):
+        raise ValueError(f"holds: {keys} name a key twice")
+    for key, events in pairs:
+        if key not in LAYERED_KINDS and key not in names:
+            raise ValueError(f"holds: {key} is neither a program kind nor a layer")
+        if key in LAYERED_KINDS and key in names:
+            raise ValueError(f"holds: {key} is both a program kind and a layer")
+        control = key == "ctrl" or kinds.get(key) == "ctrl"
+        for event in events:
+            found = _HOLD_EVENT.fullmatch(event)
+            if not found or found[1] is not None and found[1] not in _ROW_KEYS:
+                raise ValueError(f"holds: {event} is no event")
+            if control and event.startswith("row"):
+                raise ValueError(f"holds: {key} holds on {event}, the rows it applies")
+    return pairs
+
+
 @dataclass(frozen=True)
 class Header(_Node):  # pylint: disable=too-many-instance-attributes
     """The header lines, each None (``meta`` empty) where not written; ``meta`` holds each
-    text as written, plain or quoted, ``clock`` is ``(cycles_per_tick, clock_hz)`` or
-    ``(cycles_per_tick, clock_hz, "floor")`` (a ``"round"`` third is dropped), ``tempo``
+    text as written, plain or quoted, ``clock`` is ``(cycles_per_tick, clock_hz)``, ``tempo``
     an int or ``(a, b)``, ``slots`` and ``state`` are ``(cell, ...)`` pairs, ``layers``
-    ``(kind, names)`` pairs in LAYERED_KINDS order, ``regs`` the 25 registers' values before
-    tick 0, ``lag`` the output's ticks of lag and ``global_cells`` the cells the song owns
-    (``("cut",)``)."""
+    ``(kind, names)`` pairs in LAYERED_KINDS order, ``holds`` ``(key, events)`` pairs (``key`` a
+    program kind or a layer's name, ``events`` as in a slot's ``hold``), ``regs`` the 25
+    registers' values before tick 0, ``lag`` the output's calls of lag, ``calls``
+    ``(frame, full)``: the calls of a frame and the repeating pattern of 0 and 1 for each call
+    being full (None for every call full) and ``global_cells`` the cells the song owns
+    (``("cut",)``, in SONG_CELLS order)."""
 
     meta: tuple = ()
     clock: tuple | None = None
@@ -287,19 +328,16 @@ class Header(_Node):  # pylint: disable=too-many-instance-attributes
     tempo: int | tuple | None = None
     slots: tuple | None = None
     layers: tuple | None = None
+    holds: tuple | None = None
     order: tuple | None = None
     state: tuple | None = None
     regs: tuple | None = None
     lag: int | None = None
+    calls: tuple | None = None
     global_cells: tuple | None = None
 
     def _normal(self):
-        if self.clock is not None:
-            rounding = tuple(set(self.clock[2:]) - {"round"})
-            if not set(rounding) <= {"floor"}:
-                raise ValueError(f"clock: rounding {rounding} is not round or floor")
-            _set(self, "clock", tuple(self.clock[:2]) + rounding)
-        for name in ("regs", "global_cells"):
+        for name in ("clock", "regs", "global_cells"):
             if getattr(self, name) is not None:
                 _set(self, name, tuple(getattr(self, name)))
         for name in ("slots", "layers", "state"):
@@ -308,6 +346,16 @@ class Header(_Node):  # pylint: disable=too-many-instance-attributes
                 _set(self, name, tuple((k, tuple(v)) for k, v in _pairs(value)))
         if self.layers is not None:
             _set(self, "layers", _ordered(self.layers, list(LAYERED_KINDS)))
+        if self.clock is not None and len(self.clock) != 2:
+            raise ValueError(f"clock {self.clock} is (cycles_per_tick, clock_hz)")
+        if self.global_cells is not None:
+            wanted = tuple(c for c in SONG_CELLS if c in self.global_cells)
+            if wanted != self.global_cells or not wanted:
+                raise ValueError(f"global {self.global_cells}: once each of {SONG_CELLS}, in order")
+        if self.calls is not None:
+            _set(self, "calls", _calls(*self.calls))
+        if self.holds is not None:
+            _set(self, "holds", _holds(self.holds, dict(self.layers or ())))
 
     def slot(self, cell: str) -> tuple:
         """The Slots of ``cell``: one named after it where the slots line leaves it out."""
@@ -347,10 +395,15 @@ class Document(_Node):  # pylint: disable=too-many-instance-attributes
 
     @property
     def version(self) -> str:
-        """The format of the version line: VERSION_2_4 where it has layers, orderlists or a
-        call of a prelude program."""
+        """The format of the version line: VERSION_2_5 where the document has a construct of
+        :func:`unitracker_grammar.features.uses`, else VERSION_2_4 where it has layers,
+        orderlists or a call of a prelude program, else VERSION."""
+        # pylint: disable-next=import-outside-toplevel,cyclic-import
+        from unitracker_grammar import features
         from unitracker_grammar.expand import prelude_calls  # pylint: disable=C0415,R0401
 
+        if features.uses(self):
+            return VERSION_2_5
         later = self.header.layers is not None or self.voiced or prelude_calls(self)
         return VERSION_2_4 if later else VERSION
 

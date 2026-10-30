@@ -7,7 +7,7 @@ in its one text and compiled to Python.
 
 A document names no player. It holds everything it plays: instruments, programs, expressions,
 code, phrases and the tables they index. Its only constants are the note table at its clock and
-the header defaults (PAL clock, 3 voices, tempo 6). The grammar is format 2.3's and 2.4's, and
+the header defaults (PAL clock, 3 voices, tempo 6). The grammar is formats 2.3 to 2.5, and
 refuses every other version.
 
 ```text
@@ -40,14 +40,13 @@ its own context, and a play entry's transpose applies after; `init`'s notes and 
 `note:` always carry theirs. `read` also accepts a repeated octave; `printed` leaves it out.
 
 After `meta`, each optional and in this order: `clock` (`{cycles_per_tick:C,clock_hz:H}`,
-and `rounding:floor` where the note table's words are rounded down rather than to the nearest),
-`voices`, `tempo`; `slots`, per cell its modulator slots in firing order, each with its default
+`H` the machine's clock the note table is computed at), `voices`, `tempo`; `slots`, per cell its modulator slots in firing order, each with its default
 binding and the events it holds and resets on
 (`slots:{freq:{wave:{mod:note(),reset:[row.note]},tick:{hold:[step-1,row]}}}`); `layers`
-(format 2.4, below); `order`, the
+(format 2.4, below); `holds` (format 2.5, below); `order`, the
 phases of a tick (`order:[events,ctrl,pulse,filter,freq,pw,cut,read]`); `state`, per cell its
 state variables and their sizes in bytes (`state:{freq:{t:1},pw:{r:1,q:2}}`); `regs`, the 25 SID
-registers' values before tick 0 (`regs:[0,0,...,15]`); `tables`; then the definitions that are
+registers' values before tick 0 (`regs:[0,0,...,15]`); `lag`; `calls` (format 2.5); `global`; `tables`; then the definitions that are
 not song content, each kind a top-level section: `mod:` (templates keyed by their signature, an
 expression or a code block: `vib(l,c,s):|`, `walk(s):v + s`, `note():F(N)`), `restart:`,
 `ins:`, `ctrl:`, `pw:`, `filter:`, `phrase:`; then `init`, and `song:`, whose rows hold only
@@ -114,7 +113,7 @@ call stays a call.
 
 Core constructs a player reads: a binding written with `!` after it (`tick.freq:snap()!`,
 `pw:800!`, `{pw:'v + 3'!}`, an instrument's field) fires once, then leaves its slot unbound; `lag:k`
-(after `regs`) outputs each tick's registers `k` ticks late; `global:[cut]` (after `lag`) makes the
+(after `regs`) outputs each frame's registers `k` calls late; `global:[cut]` makes the
 cutoff, its bindings and the filter program the song's, not the voice's that set them.
 
 | prelude template | drives the cell to |
@@ -178,6 +177,32 @@ prelude program it does not define (`Document.version`), so every 2.3 document r
 as before. What they play is unitracker-player's
 [semantics](https://github.com/anarkiwi/unitracker-player/blob/main/docs/semantics.md#layers).
 
+## Format 2.5
+
+Every register-driving cell takes bindings, a stop and a slot prefix where an integer stood; the
+expression language gains playspec's operators; a frame may be several play calls; a program may
+pause on events; the song's filter cells are global. Each construct, its widths, defaults and
+firing order is in [docs/format-2.5.md](docs/format-2.5.md).
+
+| construct | text |
+|---|---|
+| a bound cell: `ctrl ad sr res route mode vol` as `freq`, `pw` and `cut` | `{ctrl:vib(3),ad:v + 4,vol:none}`, ` vol:'v - 1'`, `{ad:m(2),sr:9}` (instrument) |
+| slots, state and a phase for them | `slots:{vol:{fade:{mod:m(1)}}}`, `state:{ctrl:{t:1}}`, `order:[...,cut,ctl,ad,sr,res,route,mode,vol,read]` |
+| expression operators | `\| ^ & << >> ~ == != < <= > >= && \|\| !`, `lo hi u8 u16 sx ite` |
+| the calls of a frame | `calls:{frame:3,full:[1,0,0]}` |
+| programs pausing | `holds:{pw:[read,note-1],ctrl:[step],b:[legato]}` |
+| global song cells | `global:[cut,res,route,mode,vol]` |
+
+| operator | meaning |
+|---|---|
+| `\|\|` `&&` `!` | logic over any integer, 1 or 0 |
+| `==` `!=` `<` `<=` `>` `>=` | one comparison, 1 or 0, in parentheses only as an operand |
+| `\|` `^` `&` `<<` `>>` `~` | bitwise, shifts and not |
+| `+ - * // %` | floored, as before |
+
+A document is 2.5 exactly where it has any of these; `Document.version` says so. Without
+`calls` a frame is one full call.
+
 ## Install
 
 ```sh
@@ -192,7 +217,7 @@ tree = parse(text)        # a checked lark.Tree, or CanonicalError naming the li
 frequency(57)             # F(57): A4 at the PAL clock
 frequency(-24)            # F(-24): C-2, notes below C0 too (0 where the word rounds to 0)
 table(clock_hz=1022727)   # F(k) for every note whose word fits, from C0, at NTSC
-frequency(57, 985240, "floor")  # F(k) = R(440 * 2**((k - 57)/12) * 2**24 / clock_hz), R round or floor
+frequency(57, 985248)     # F(k) = round(440 * 2**((k - 57)/12) * 2**24 / clock_hz), 0 outside 1-65535
 from unitracker_grammar.expand import core, expanded
 core(text)                # the parse tree of text's core (parsed once where it has no sugar)
 ```
@@ -221,7 +246,8 @@ fn(10, 1, 48)                               # (v, phi, N, n=0) -> 12
 note; a template's other lowercase names are its parameters, which `params` lists and `bind`
 replaces with integers. `source` is the Python source of an expression (`ExpressionError` outside the grammar),
 `printed` the one text of a node and `written` an integer literal as an int. `//` and `%` raise
-`ZeroDivisionError` on a divisor of 0; with `zero=True` they are 0.
+`ZeroDivisionError` on a divisor of 0 and a shift `ValueError` on a negative count; with
+`zero=True` they are 0. `later` says whether a text or parse tree needs format 2.5.
 
 ## Code templates
 
@@ -250,7 +276,7 @@ its cell's state are set, A, X, Y and the flags (but I) are 0, and the routine r
 on an empty stack, within 4096 instructions; `v` wrapped to the cell's width is its value and the
 state is stored back. A symbol that is none of these, or a state variable of another cell, is
 refused when the template is bound. `F.lo` / `F.hi` are the note table's bytes, entry k those
-of `frequency(k, clock_hz, rounding)` for k -128-255, so `F.lo-24,y` reads entry y - 24.
+of `frequency(k, clock_hz)` for k -128-255, so `F.lo-24,y` reads entry y - 24.
 
 ```python
 code.signature("vib(l, c, s)")            # ('vib', ('l', 'c', 's')), CodeError on a repeat
@@ -307,7 +333,7 @@ doc = replace(doc, loop=None)                                # edits are datacla
 | class | holds |
 |---|---|
 | `Document(header, tables, mods, defs, init, rows, loop)` | `tables` `{name: ints}`; `mods` the templates `(signature, Expr \| Code)`; `defs` the `restart`, `ins`, `ctrl`, `pw`, `filter`, `phrase` and `section` sections in that order (`Section`s, or `{kind: [(name, value)]}`); `init` events or None; `rows` song items (SongRows, or play entry lists, Parts and Groups); `loop` the item it loops to, None for `end` |
-| `Header(meta, clock, voices, tempo, slots, layers, order, state, regs, lag, global_cells)` | each line, None where not written (the version line is `Document.version`: `VERSION_2_4`, `"2.4"`, with layers or orderlists, else `VERSION`, `"2.3"`); `layers` `{kind: names}` in `LAYERED_KINDS` order; `clock` `(cycles_per_tick, clock_hz)`, or with `"floor"` third; `meta` texts as written (`"'A, B'"` quoted); `slots` `{cell: [Slot]}`, `state` `{cell: [(name, size)]}`; `slot(cell)` its Slots |
+| `Header(meta, clock, voices, tempo, slots, layers, holds, order, state, regs, lag, calls, global_cells)` | each line, None where not written (the version line is `Document.version`: `VERSION_2_5`, `"2.5"`, with a construct of format 2.5, else `VERSION_2_4`, `"2.4"`, with layers, orderlists or a prelude program, else `VERSION`, `"2.3"`); `layers` `{kind: names}` in `LAYERED_KINDS` order; `clock` `(cycles_per_tick, clock_hz)`; `holds` `(key, events)` pairs; `calls` `(frame, full)`; `meta` texts as written (`"'A, B'"` quoted); `slots` `{cell: [Slot]}`, `state` `{cell: [(name, size)]}`; `slot(cell)` its Slots |
 | `Slot(name, mod, hold, reset)` | a slot's default binding and its events (`"note-1"`, `"row.freq"`) |
 | `SongRow(play)` | play entries (`Play(phrase, transpose)`, `"~"`, `"end"`; a phrase is a name or inline events) |
 | `Section(kind, records)` | `(name, value)` records of one kind; a template's name is its `signature` (`arp(a,b)`), its rows reading parameters as strings (`ad: "a"`, `note: "+a"`, `Call("walk", ("b",))`); a `pw` or `filter` record `Program([{"pw": b}])` (`cut` for `filter`) is stored as `b` |

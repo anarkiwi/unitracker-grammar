@@ -1,4 +1,4 @@
-// The canonical unitracker document, format 2.3. A document names no player: everything it plays
+// The canonical unitracker document, formats 2.3 to 2.5. A document names no player: everything it plays
 // is in it, and its only constants are the note table F(k) (notes.py) at its clock.
 // Whitespace is exact and there are no line wraps: a block line holds its whole value. No space
 // follows a key's colon or a flow comma; a record is indented by one space, a code block's line
@@ -32,6 +32,13 @@
 // instrument's restart calls by its parameters (restart:hr(2,15,0), prelude.PROGRAMS), unless the
 // document defines its own. A document is 2.4 exactly where it has a layers line, voice
 // orderlists or such a call; without them each kind has one layer, and it is 2.3.
+// Format 2.5 adds bindings and stops on every register-driving cell (ctrl, ad, sr, res, route,
+// mode and vol as well as freq, pw and cut) in program rows, instrument fields (ad, sr) and
+// event commands, with slots, state and a phase of the tick for each; the expression operators
+// and functions of playspec; the calls line (the play calls of a frame and which are full); the
+// holds line (the events on which a program kind or layer does not advance); and the song cells
+// res, route, mode and vol in the global line. A document is 2.5 exactly where it has any of
+// them (docs/format-2.5.md).
 
 start: FORMAT _NL meta _NL _from_clock? "song:" _NL (item+ ending | voice+)
 // the optional lines after meta, in order: a chain of rules, each the lines from one on, so
@@ -40,11 +47,13 @@ _from_clock: clock _NL _from_voices? | _from_voices
 _from_voices: voices _NL _from_tempo? | _from_tempo
 _from_tempo: tempo _NL _from_slots? | _from_slots
 _from_slots: slots _NL _from_layers? | _from_layers
-_from_layers: layers _NL _from_order? | _from_order
+_from_layers: layers _NL _from_holds? | _from_holds
+_from_holds: holds _NL _from_order? | _from_order
 _from_order: order _NL _from_state? | _from_state
 _from_state: state _NL _from_regs? | _from_regs
 _from_regs: regs _NL _from_lag? | _from_lag
-_from_lag: lag _NL _from_global? | _from_global
+_from_lag: lag _NL _from_calls? | _from_calls
+_from_calls: calls _NL _from_global? | _from_global
 _from_global: global_cells _NL _from_tables? | _from_tables
 _from_tables: tables _from_mod? | _from_mod
 _from_mod: def_mod _from_restart? | _from_restart
@@ -63,8 +72,8 @@ meta: "meta:" _LC meta_item (_SEP meta_item)* "}"
 meta_item: META_KEY ":" text
 text: TEXT | SQUOTED | DQUOTED
 
-// the note table's words are rounded to the nearest unless the clock says floor
-clock: "clock:{cycles_per_tick:" INT ",clock_hz:" INT (",rounding:" ROUNDING)? "}"
+// clock_hz is the machine's clock, the note table F(k) (notes.py) computed at it
+clock: "clock:{cycles_per_tick:" INT ",clock_hz:" INT "}"
 voices: "voices:" INT
 tempo: "tempo:" (INT | "[" INT "," INT "]")
 
@@ -86,6 +95,10 @@ layers_pw: "pw:" layer_names (_SEP layers_filter)? | layers_filter
 layers_filter: "filter:" layer_names
 layer_names: _LB NAME (_SEP NAME)* "]"
 
+// per program kind or layer, the events on which its program does not advance
+holds: "holds:" _LC hold_key (_SEP hold_key)* "}"
+hold_key: NAME ":" events
+
 // the phases of a tick in the order they run, each over the voices in order
 order: "order:" _LB PHASE (_SEP PHASE)* "]"
 
@@ -93,7 +106,14 @@ order: "order:" _LB PHASE (_SEP PHASE)* "]"
 state: "state:" _LC state_freq "}"
 state_freq: "freq:" state_vars (_SEP state_pw)? | state_pw
 state_pw: "pw:" state_vars (_SEP state_cut)? | state_cut
-state_cut: "cut:" state_vars
+state_cut: "cut:" state_vars (_SEP state_ctrl)? | state_ctrl
+state_ctrl: "ctrl:" state_vars (_SEP state_ad)? | state_ad
+state_ad: "ad:" state_vars (_SEP state_sr)? | state_sr
+state_sr: "sr:" state_vars (_SEP state_res)? | state_res
+state_res: "res:" state_vars (_SEP state_route)? | state_route
+state_route: "route:" state_vars (_SEP state_mode)? | state_mode
+state_mode: "mode:" state_vars (_SEP state_vol)? | state_vol
+state_vol: "vol:" state_vars
 state_vars: _LC state_var (_SEP state_var)* "}"
 state_var: STATE_NAME ":" STATE_SIZE
 
@@ -103,8 +123,19 @@ regs: "regs:" intlist
 // the ticks the registers are written after the tick that computes them
 lag: "lag:" INT
 
-// the cells whose bindings, stops and program belong to the song, not to the voice that set them
-global_cells: "global:" _LB GLOBAL_CELL "]"
+// the play calls that make one frame of output, and the pattern of which calls are full: a
+// reduced call runs no events phase and counts no step or tempo
+calls: "calls:" _LC "frame:" INT (_SEP "full:" bits)? "}"
+bits: _LB BIT (_SEP BIT)* "]"
+
+// the song cells whose bindings, stops and program belong to the song, not to the voice that set
+// them
+global_cells: "global:" _LB _global_cut "]"
+_global_cut: GCUT (_SEP _global_res)? | _global_res
+_global_res: GRES (_SEP _global_route)? | _global_route
+_global_route: GROUTE (_SEP _global_mode)? | _global_mode
+_global_mode: GMODE (_SEP _global_vol)? | _global_vol
+_global_vol: GVOL
 
 // the tables expressions index as T[k] (0 outside the list) and code reads as T.lo, T.hi
 tables: "tables:" _NL (" " XTABLE ":" intlist _NL)+
@@ -154,8 +185,8 @@ play: (PHRASE | phrase | use_phrase | PHRASE_CALL | use_template) SIGNED? | CONT
 // a cell's keys repeating in the order they apply ----------------------------------------
 
 instrument: _LC ins_ad "}"
-ins_ad: "ad:" _int (_SEP ins_sr)? | ins_sr
-ins_sr: "sr:" _int (_SEP ins_ctrl)? | ins_ctrl
+ins_ad: SLOT? "ad:" (NONE | _binding | once) (_SEP ins_ad)? | ins_sr
+ins_sr: SLOT? "sr:" (NONE | _binding | once) (_SEP ins_sr)? | ins_ctrl
 ins_ctrl: SLOT? "ctrl:" (CTRL | CALL | program | use_ctrl | use_template) (_SEP ins_ctrl)? | ins_pw
 ins_pw: SLOT? "pw:" (PW | NONE | modulation | use_pw | once) (_SEP ins_pw)? | ins_filter
 ins_filter: SLOT? "filter:" (FILTER | NONE | modulation | use_filter | once) (_SEP ins_filter)? | ins_freq
@@ -173,22 +204,22 @@ _int: INT | PARAM
 row_: _LC "}" | _LC row_wait "}"
 row_wait: "wait:" _int (_SEP row_hold)? | row_hold
 row_hold: "hold:" _int (_SEP row_ctrl)? | row_ctrl
-row_ctrl: "ctrl:" _int (_SEP row_mask)? | row_mask
+row_ctrl: SLOT? "ctrl:" cell_value (_SEP row_ctrl)? | row_mask
 row_mask: "mask:" _int (_SEP row_gate)? | row_gate
 row_gate: "gate:" _int (_SEP row_note)? | row_note
 row_note: "note:" note_value (_SEP row_ad)? | row_ad
-row_ad: "ad:" _int (_SEP row_sr)? | row_sr
-row_sr: "sr:" _int (_SEP row_pw)? | row_pw
+row_ad: SLOT? "ad:" cell_value (_SEP row_ad)? | row_sr
+row_sr: SLOT? "sr:" cell_value (_SEP row_sr)? | row_pw
 row_pw: SLOT? "pw:" cell_value (_SEP row_pw)? | row_cut
 row_cut: SLOT? "cut:" cell_value (_SEP row_cut)? | row_res
-row_res: "res:" _int (_SEP row_route)? | row_route
-row_route: "route:" _int (_SEP row_route_on)? | row_route_on
+row_res: SLOT? "res:" cell_value (_SEP row_res)? | row_route
+row_route: SLOT? "route:" cell_value (_SEP row_route)? | row_route_on
 row_route_on: "route_on:" _int (_SEP row_route_off)? | row_route_off
 row_route_off: "route_off:" _int (_SEP row_mode)? | row_mode
-row_mode: "mode:" _int (_SEP row_freq)? | row_freq
+row_mode: SLOT? "mode:" cell_value (_SEP row_mode)? | row_freq
 row_freq: SLOT? "freq:" cell_value (_SEP row_freq)? | row_run
 row_run: SLOT? "run:" (_program_ref | run_program) (_SEP row_run)? | row_vol
-row_vol: "vol:" _int
+row_vol: SLOT? "vol:" cell_value (_SEP row_vol)?
 
 note_value: SIGNED | NOTE | REL_PARAM
 cell_value: _binding | NONE | HOLD | RESET | once
@@ -208,13 +239,13 @@ body: _events
 event: (NOTE_ATOM | NOTE_PARAM) ("." (INS | instrument | use_ins | CALL | use_template))? cmd_run keep_pw keep_filter ("*" INT)?
 cmd_run: CMD_RUN (_program_ref | run_program | NONE) cmd_run | cmd_pw
 cmd_pw: CMD_PW (INT | _command | once) cmd_pw | cmd_ad
-cmd_ad: " ad:" INT cmd_sr | cmd_sr
-cmd_sr: " sr:" INT cmd_ctrl | cmd_ctrl
-cmd_ctrl: " ctrl:" INT cmd_res | cmd_res
-cmd_res: " res:" INT cmd_route | cmd_route
-cmd_route: " route:" INT cmd_mode | cmd_mode
-cmd_mode: " mode:" INT cmd_vol | cmd_vol
-cmd_vol: " vol:" INT cmd_cut | cmd_cut
+cmd_ad: CMD_AD (INT | _command | once) cmd_ad | cmd_sr
+cmd_sr: CMD_SR (INT | _command | once) cmd_sr | cmd_ctrl
+cmd_ctrl: CMD_CTRL (INT | _command | once) cmd_ctrl | cmd_res
+cmd_res: CMD_RES (INT | _command | once) cmd_res | cmd_route
+cmd_route: CMD_ROUTE (INT | _command | once) cmd_route | cmd_mode
+cmd_mode: CMD_MODE (INT | _command | once) cmd_mode | cmd_vol
+cmd_vol: CMD_VOL (INT | _command | once) cmd_vol | cmd_cut
 cmd_cut: CMD_CUT (INT | _command | once) cmd_cut | cmd_tempo
 cmd_tempo: " tempo:" INT ("/" INT)? cmd_vtempo | cmd_vtempo
 cmd_vtempo: " vtempo:" INT ("/" INT)? cmd_freq | cmd_freq
@@ -244,13 +275,25 @@ use_template: DEF_SIG (asm | qexpr | program | run_program | instrument) ARGS | 
 fexpr: expr | "'" expr "'"
 // a command's or a slot default's expression, always quoted
 qexpr: "'" expr "'" -> fexpr
-expr: term (ADD term)*
+// the operators, loosest first, with playspec's precedence: ||, &&, !, one comparison, |, ^, &,
+// the shifts, + -, * // %, and the unary ~ and -
+expr: land (OR land)*
+?land: lnot (AND lnot)*
+?lnot: NOT lnot | cmp
+?cmp: bor (CMP bor)?
+?bor: bxor (BOR bxor)*
+?bxor: band (BXOR band)*
+?band: shift (BAND shift)*
+?shift: sum (SHIFT sum)*
+?sum: term (ADD term)*
 term: factor (MUL factor | FLOORDIV factor | MOD factor)*
 factor: INT | SIGNED | V | PHI | N | EVENT_NOTE | PARAM
       | F expr ")" | XTABLE "[" expr "]"
       | ABS expr ")" | MIN expr _SEP expr ")" | MAX expr _SEP expr ")"
-      | "(" expr ")" | "(" expr CMP expr ")"
-      | NEG factor
+      | LO expr ")" | HI expr ")" | U8 expr ")" | U16 expr ")" | SX expr ")"
+      | ITE expr _SEP expr _SEP expr ")"
+      | "(" expr ")"
+      | NEG factor | INVERT factor
 
 // ---- code (unitracker_grammar.code): a label, or a mnemonic with its operand ---------------
 
@@ -265,20 +308,32 @@ code_mem: (NAME | TABLE_BYTE) OFFSET? INDEX?
 // ---- terminals --------------------------------------------------------------------------
 
 META_KEY: "title" | "author" | "released"
-GLOBAL_CELL: "cut"
-ROUNDING: "floor"
-CELL: "freq" | "pw" | "cut"
-PHASE: "events" | "ctrl" | "pulse" | "filter" | "freq" | "pw" | "cut" | "read"
+GCUT: "cut"
+GRES: "res"
+GROUTE: "route"
+GMODE: "mode"
+GVOL: "vol"
+BIT: /[01]/
+CELL: "freq" | "pw" | "cut" | "ctrl" | "ad" | "sr" | "res" | "route" | "mode" | "vol"
+PHASE: "events" | "ctrl" | "pulse" | "filter" | "freq" | "pw" | "cut" | "ctl" | "ad" | "sr"
+     | "res" | "route" | "mode" | "vol" | "read"
 HOLD_EVENT: /(?:step|last|read|note|legato)(?:-[1-9]\d*)?|row(?:\.[a-z]+)?/
 PROGRAM_KIND: /(?:ctrl|pw|filter)(?=\[)/
 _ASM.2: "asm{"
 // a slot's prefix, or a layer's on a program's field or a run
 SLOT: /[a-z][a-z0-9_]*\./
-FORMAT: /unitracker:2\.[34]/
+FORMAT: /unitracker:2\.[345]/
 CMD_RUN: / (?:[a-z][a-z0-9_]*\.)?run:/
 CMD_PW: / (?:[a-z][a-z0-9_]*\.)?pw:/
 CMD_CUT: / (?:[a-z][a-z0-9_]*\.)?cut:/
 CMD_FREQ: / (?:[a-z][a-z0-9_]*\.)?freq:/
+CMD_AD: / (?:[a-z][a-z0-9_]*\.)?ad:/
+CMD_SR: / (?:[a-z][a-z0-9_]*\.)?sr:/
+CMD_CTRL: / (?:[a-z][a-z0-9_]*\.)?ctrl:/
+CMD_RES: / (?:[a-z][a-z0-9_]*\.)?res:/
+CMD_ROUTE: / (?:[a-z][a-z0-9_]*\.)?route:/
+CMD_MODE: / (?:[a-z][a-z0-9_]*\.)?mode:/
+CMD_VOL: / (?:[a-z][a-z0-9_]*\.)?vol:/
 // a template's parameter: a lowercase name, but a name a template's body or a cell value
 // reads otherwise and a record's name (pw1, c1, f1, ...)
 _PARAM_NAME: /(?!(?:v|phi|n|nn|ne|none|hold|reset|(?:pw|[cfiprs])\d+)\b)[a-z][a-z0-9_]*\b/
@@ -314,9 +369,9 @@ STATE_NAME: /(?!(?:v|phi|nn|ne|a|x|y)\b)[a-z][a-z0-9_]*/
 STATE_SIZE: /[12]\b/
 TABLE_BYTE: /(?!N\.)[A-Z][A-Za-z]*\.(?:lo|hi)/
 // a template's key, a modulator's or a program's: its name, no record's, and its parameters
-SIGNATURE: /(?!(?:pw|[cfiprs])\d+\()[a-z][a-z0-9_]*\(/ (_PARAM_NAME ("," _PARAM_NAME)*)? ")"
+SIGNATURE: /(?!(?:pw|[cfiprs])\d+\(|(?:abs|min|max|lo|hi|u8|u16|sx|ite)\()[a-z][a-z0-9_]*\(/ (_PARAM_NAME ("," _PARAM_NAME)*)? ")"
 // a call: its arguments integers or, in a program template's rows, its parameters
-CALL: /(?!(?:abs|min|max)\()[a-z][a-z0-9_]*\((?:(?:[+-]?(?:0|[1-9]\d*)|[a-z][a-z0-9_]*)(?:,(?:[+-]?(?:0|[1-9]\d*)|[a-z][a-z0-9_]*))*)?\)/
+CALL: /(?!(?:abs|min|max|lo|hi|u8|u16|sx|ite)\()[a-z][a-z0-9_]*\((?:(?:[+-]?(?:0|[1-9]\d*)|[a-z][a-z0-9_]*)(?:,(?:[+-]?(?:0|[1-9]\d*)|[a-z][a-z0-9_]*))*)?\)/
 DEF_INS.2: /i\d+=/
 DEF_RESTART.2: /r\d+=/
 DEF_CTRL.2: /c\d+=/
@@ -361,3 +416,17 @@ ADD: / [+-] /
 FLOORDIV: " // "
 MOD: " % "
 CMP: / (?:==|!=|<=|>=|<|>) /
+OR: " || "
+AND: " && "
+NOT: "!"
+BOR: " | "
+BXOR: " ^ "
+BAND: " & "
+SHIFT: / (?:<<|>>) /
+INVERT: "~"
+LO: "lo("
+HI: "hi("
+U8: "u8("
+U16: "u16("
+SX: "sx("
+ITE: "ite("
