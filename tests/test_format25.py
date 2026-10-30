@@ -207,10 +207,10 @@ def test_the_cells_masks_and_phases_are_the_grammar_s():
         8,
         4,
         4,
-        3,
+        4,
         4,
     ]
-    assert cells.MASKS["mode"] == 0x70 and cells.MASKS["res"] == cells.MASKS["vol"] == 0xF
+    assert cells.MASKS["mode"] == 0xF0 and cells.MASKS["res"] == cells.MASKS["vol"] == 0xF
     assert cells.PHASES[:4] + cells.PHASES[-1:] == ("events", "ctrl", "pulse", "filter", "read")
     assert cells.PHASES[4:-1] == tuple(cells.PHASE_OF[c] for c in cells.CELLS)
     assert set(cells.LATER_CELLS) == set(cells.CELLS) - {"freq", "pw", "cut"}

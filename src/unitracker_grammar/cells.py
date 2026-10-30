@@ -15,7 +15,7 @@ MASKS = {
     "sr": 0xFF,
     "res": 0x0F,
     "route": 0x0F,
-    "mode": 0x70,
+    "mode": 0xF0,
     "vol": 0x0F,
 }
 PHASE_OF = {cell: "ctl" if cell == "ctrl" else cell for cell in CELLS}
