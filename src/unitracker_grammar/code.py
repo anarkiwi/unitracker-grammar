@@ -649,6 +649,8 @@ def _later_node(node: Tree) -> bool:
     tokens = [c for c in node.children if isinstance(c, Token)]
     if node.data == "global_cells":
         return any(t.type != "GCUT" for t in tokens)
+    if node.data == "events":
+        return any(t.split("-")[0] == "event" for t in tokens)
     if node.data == "slot_cell":
         return tokens[0] in LATER_CELLS
     if node.data == "order":
