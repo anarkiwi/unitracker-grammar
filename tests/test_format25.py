@@ -487,3 +487,28 @@ def test_an_integer_has_no_once_form(cell):
         parse(rows(f"{cell}:9!", version="2.3"))
     (row,) = read(rows(f"{cell}:9", version="2.3")).records("ins")["i1"].get("ctrl").rows
     assert row.keys == ((cell, 9),)
+
+
+# ---- event --------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "head",
+    [
+        "holds:{pw:[event,event-2]}\n",
+        "holds:{ctrl:[step,event-1]}\n",
+        "slots:{freq:{a:{hold:[event-1],reset:[event]}}}\n",
+        "slots:{pw:{pulse:{hold:[event]}}}\n",
+    ],
+)
+def test_the_event_hold_event_is_format_25_in_slots_and_holds(head):
+    text = doc("2.5", head)
+    refused_as(text, "2.4")
+    assert printed(read(text)) == text
+
+
+def test_the_event_hold_event_takes_an_offset_but_not_a_row_key_or_zero():
+    for bad in ("event-0", "event.freq", "events"):
+        with pytest.raises(CanonicalError):
+            parse(doc("2.5", f"holds:{{pw:[{bad}]}}\n"))
+    assert read(doc("2.5", "holds:{pw:[event-3]}\n")).header.holds == (("pw", ("event-3",)),)

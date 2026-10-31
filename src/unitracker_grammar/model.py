@@ -19,7 +19,7 @@ _ROW_KEYS = (
 ).split()
 _INS_KEYS = "ad sr ctrl pw filter freq restart".split()
 _CMD_KEYS = "run pw ad sr ctrl res route mode vol cut tempo vtempo freq legato".split()
-_HOLD_EVENT = re.compile(r"(?:step|last|read|note|legato)(?:-[1-9]\d*)?|row(?:\.([a-z]+))?")
+_HOLD_EVENT = re.compile(r"(?:step|last|read|note|legato|event)(?:-[1-9]\d*)?|row(?:\.([a-z]+))?")
 
 
 class Signed(int):

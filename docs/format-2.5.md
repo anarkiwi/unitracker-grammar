@@ -5,6 +5,7 @@ What each construct of format 2.5 plays, for a player to implement from this pag
 which every rule not restated here keeps. A document is format 2.5 exactly where it has any of:
 
 - a `calls` or a `holds` line;
+- the hold event `event`, in a slot's `hold` or `reset`, or in `holds`;
 - a `global` line naming a cell but `cut`;
 - a `slots` or `state` line naming `ctrl`, `ad`, `sr`, `res`, `route`, `mode` or `vol`, or an
   `order` line naming `ctl` or one of those cells' phases;
@@ -78,6 +79,15 @@ Any other value binds or stops:
 `hold` ends the binding of every slot of the cell. It stops no program: the cell has no program
 slot (`cut`'s is the filter program, `pw`'s the pulse program). `row.KEY` events (`row`,
 `row.ad`, ...) name a row that has the key `KEY` as an integer, a binding or a stop.
+
+### Hold events
+
+| event | occurs |
+|---|---|
+| `event` | on the tick of the first step of each event of a voice's pattern: a note, a legato note, a rest `-`, `off`, `on`, or an event carrying commands; not on the other steps of a `*k` event |
+
+`event-k` is the call `k` calls before it. The other hold events are those of
+[Semantics](https://github.com/anarkiwi/unitracker-player/blob/main/docs/semantics.md).
 
 ### Firing
 
@@ -187,7 +197,7 @@ the sequencer owns counts the full calls only; the rest counts all calls:
 | the `events` and `read` phases; init (at sequencer tick 0, the first full call); `tempo`, `vtempo` and the steps, an event's `*k`, the timeline and the song's end; a restart's rows, their `hold` and `wait` and the lookahead before the note | programs' `wait` and `hold` (control, pulse, filter); a modulator's phi; once bindings; the `-k` of a slot's hold and reset events and of `holds`; `lag`; the registers' sampling |
 
 An event whose tick is sequencer tick `s` happens on the `s`th full call (from 0). The events
-of a slot, `step`, `last`, `read`, `note` and `legato`, are on such calls, so never on a reduced one;
+of a slot, `step`, `last`, `read`, `note`, `legato` and `event`, are on such calls, so never on a reduced one;
 `row` and `row.KEY` are on any call a control program row applies; `e-k` is the call `k` calls
 before a call of `e` (none before call 0). The song ends at the sequencer tick every voice has
 stopped: the calls before that full call are played and a trailing part of a frame is not output.

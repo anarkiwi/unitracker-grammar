@@ -19,6 +19,7 @@ from unitracker_grammar.model import (
     Instrument,
     Once,
     Row,
+    Slot,
     base,
 )
 
@@ -62,6 +63,13 @@ def _pairs(node):
     return ()
 
 
+def _event_slot(node) -> bool:
+    """Whether ``node`` is a slot holding or resetting on the ``event`` event."""
+    return isinstance(node, Slot) and any(
+        e.split("-")[0] == "event" for e in (node.hold or ()) + (node.reset or ())
+    )
+
+
 def uses(doc: Document) -> bool:
     """Whether ``doc`` has a construct of format 2.5: a ``calls`` or ``holds`` line, a global
     cell but the cutoff, a slots or state line or an order line naming a cell or phase 2.5 adds,
@@ -75,7 +83,7 @@ def uses(doc: Document) -> bool:
     if {c for c, _ in (head.slots or ()) + (head.state or ())} & set(LATER_CELLS):
         return True
     for node in _nodes(doc):
-        if isinstance(node, Expr) and expr.later(node.text):
+        if _event_slot(node) or isinstance(node, Expr) and expr.later(node.text):
             return True
         if any(base(k) in LATER_CELLS and _bound(k, v) for k, v in _pairs(node)):
             return True

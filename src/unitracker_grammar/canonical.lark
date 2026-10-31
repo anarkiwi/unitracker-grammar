@@ -317,7 +317,7 @@ BIT: /[01]/
 CELL: "freq" | "pw" | "cut" | "ctrl" | "ad" | "sr" | "res" | "route" | "mode" | "vol"
 PHASE: "events" | "ctrl" | "pulse" | "filter" | "freq" | "pw" | "cut" | "ctl" | "ad" | "sr"
      | "res" | "route" | "mode" | "vol" | "read"
-HOLD_EVENT: /(?:step|last|read|note|legato)(?:-[1-9]\d*)?|row(?:\.[a-z]+)?/
+HOLD_EVENT: /(?:step|last|read|note|legato|event)(?:-[1-9]\d*)?|row(?:\.[a-z]+)?/
 PROGRAM_KIND: /(?:ctrl|pw|filter)(?=\[)/
 _ASM.2: "asm{"
 // a slot's prefix, or a layer's on a program's field or a run
