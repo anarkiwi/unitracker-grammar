@@ -202,6 +202,16 @@ of a slot, `step`, `last`, `read`, `note`, `legato` and `event`, are on such cal
 before a call of `e` (none before call 0). The song ends at the sequencer tick every voice has
 stopped: the calls before that full call are played and a trailing part of a frame is not output.
 
+## Env
+
+`env:S/S/...` in a program row, and ` env:S/S/...` as an event command, writes a voice's envelope
+registers as up to four segments in one call. A segment is `sr.ad.ctrl`, each value an integer
+or `_`, the value the call's phases left. The call writes each segment's registers in the order
+`sr`, `ad`, `ctrl`, the segments in order, and the voice's `sr`, `ad` and `ctrl` cells hold the
+last segment's values. A segment ends at a gate or TEST edge: the commanded envelope is the
+gate edges and the `sr` and `ad` in force at each edge and at the call's end, so the order of
+writes between two edges carries nothing. `env:_._.65` is `ctrl:65`.
+
 ## Holds
 
 `holds:{pw:[read,note-1],ctrl:[step],b:[legato]}`, after `layers` and before `order`. Each key is

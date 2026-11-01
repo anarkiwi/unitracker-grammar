@@ -14,6 +14,7 @@ from unitracker_grammar.model import (
     Code,
     Def,
     Document,
+    Env,
     Event,
     Expr,
     Instrument,
@@ -70,10 +71,14 @@ def _event_slot(node) -> bool:
     )
 
 
+def _later_expr(node) -> bool:
+    return isinstance(node, Expr) and expr.later(node.text)
+
+
 def uses(doc: Document) -> bool:
     """Whether ``doc`` has a construct of format 2.5: a ``calls`` or ``holds`` line, a global
     cell but the cutoff, a slots or state line or an order line naming a cell or phase 2.5 adds,
-    a binding or stop of a cell 2.5 adds, or an expression with an operator, function or
+    an env, a binding or stop of a cell 2.5 adds, or an expression with an operator, function or
     comparison 2.5 adds."""
     head = doc.header
     if head.calls is not None or head.holds is not None:
@@ -83,7 +88,7 @@ def uses(doc: Document) -> bool:
     if {c for c, _ in (head.slots or ()) + (head.state or ())} & set(LATER_CELLS):
         return True
     for node in _nodes(doc):
-        if _event_slot(node) or isinstance(node, Expr) and expr.later(node.text):
+        if _event_slot(node) or isinstance(node, Env) or _later_expr(node):
             return True
         if any(base(k) in LATER_CELLS and _bound(k, v) for k, v in _pairs(node)):
             return True

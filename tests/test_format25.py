@@ -10,6 +10,7 @@ from unitracker_grammar.code import CodeError, Call
 from unitracker_grammar.document import (
     Code,
     Document,
+    Env,
     Event,
     Expr,
     Header,
@@ -512,3 +513,32 @@ def test_the_event_hold_event_takes_an_offset_but_not_a_row_key_or_zero():
         with pytest.raises(CanonicalError):
             parse(doc("2.5", f"holds:{{pw:[{bad}]}}\n"))
     assert read(doc("2.5", "holds:{pw:[event-3]}\n")).header.holds == (("pw", ("event-3",)),)
+
+
+# ---- env ----------------------------------------------------------------------------------
+
+ENVS = {
+    "_._.65": Env(((None, None, 65),)),
+    "240.9.64/_._.65": Env(((240, 9, 64), (None, None, 65))),
+    "0.9.8/_._.9/_.15.8/0.0.9": Env(((0, 9, 8), (None, None, 9), (None, 15, 8), (0, 0, 9))),
+}
+
+
+@pytest.mark.parametrize("env", ENVS)
+def test_a_row_and_an_event_command_write_an_env(env):
+    text = rows(f"wait:1,env:{env}")
+    refused_as(text, "2.4")
+    (row,) = read(text).records("ins")["i1"].get("ctrl").rows
+    assert row.keys == (("wait", 1), ("env", ENVS[env]))
+    text = events(f" ctrl:3 env:{env}")
+    refused_as(text, "2.3")
+    (event,) = read(text).records("phrase")["p1"]
+    assert event.commands == (("ctrl", 3), ("env", ENVS[env]))
+
+
+@pytest.mark.parametrize(
+    "env", ["_._", "1.2.3/4.5.6/7.8.9/1.2.3/4.5.6", "1.2.3/", "a.b.c", "1,2,3"]
+)
+def test_an_env_has_one_to_four_segments_of_three_values(env):
+    with pytest.raises(CanonicalError):
+        parse(rows(f"env:{env}"))

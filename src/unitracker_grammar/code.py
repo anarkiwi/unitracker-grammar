@@ -665,6 +665,8 @@ def format_2_5(tree: Tree) -> bool:
     :func:`unitracker_grammar.features.uses`, which finds the same in the model)."""
     if _top(tree, "calls") or _top(tree, "holds") or expr.later(tree):
         return True
+    if any(True for _ in tree.scan_values(lambda v: v.type == "ENV")):
+        return True
     return any(_later_node(node) for node in tree.iter_subtrees())
 
 
@@ -682,8 +684,9 @@ def _version(tree: Tree, named):
     if not tree.children[0].endswith(wanted):
         raise CanonicalError(
             f"a document is format {wanted} exactly where it has a construct of that format: "
-            "2.5 a calls, holds or global line but the cutoff's, a binding of ctrl, ad, sr, res, "
-            "route, mode or vol, a slots, state or order line for them, or an expression with "
+            "2.5 an env, a calls, holds or global line but the cutoff's, a binding of ctrl, ad, "
+            "sr, "
+            "res, route, mode or vol, a slots, state or order line for them, or an expression with "
             "the bitwise, logic or wrap operators; 2.4 layers, orderlists or a prelude program"
         )
 
