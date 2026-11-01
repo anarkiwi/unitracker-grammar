@@ -21,6 +21,7 @@ from unitracker_grammar.model import (
     Once,
     Row,
     Slot,
+    Writes,
     base,
 )
 
@@ -49,7 +50,7 @@ def _bound(key: str, value) -> bool:
         return True
     if isinstance(value, Expr):
         return not (value.text.isdigit() or PARAM.fullmatch(value.text))
-    return isinstance(value, (Call, Code, Once, Def))
+    return isinstance(value, (Call, Code, Once, Def, Writes))
 
 
 def _pairs(node):

@@ -212,6 +212,13 @@ last segment's values. A segment ends at a gate or TEST edge: the commanded enve
 gate edges and the `sr` and `ad` in force at each edge and at the call's end, so the order of
 writes between two edges carries nothing. `env:_._.65` is `ctrl:65`.
 
+A TEST pulse is an ordinary `ctrl` write when the call has one TEST edge. A call that pulses TEST
+repeatedly (sample playback) writes `ctrl:[a,b,...]`, two integers or more, a program row's key or
+an event command: the control register is written each value in this order, and the cell holds
+the last. Between such writes `sr` and `ad` are as the call left them. `mask` holds bits over the
+`ctrl` cell between calls (the TEST bit of a restart, a lift's ring and sync bits), and is not
+a part of an env or a list.
+
 ## Holds
 
 `holds:{pw:[read,note-1],ctrl:[step],b:[legato]}`, after `layers` and before `order`. Each key is

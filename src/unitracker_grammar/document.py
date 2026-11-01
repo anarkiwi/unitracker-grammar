@@ -48,6 +48,7 @@ from unitracker_grammar.model import (  # pylint: disable=unused-import
     Slot,
     SongRow,
     Voice,
+    Writes,
     _CELL,
     base,
     signature,
@@ -67,6 +68,7 @@ __all__ = [
     "VERSION_2_5",
     "Call",
     "Env",
+    "Writes",
     "Code",
     "Def",
     "Document",
@@ -404,6 +406,10 @@ class _ToModel(Transformer):
     @staticmethod
     def row_(children):
         return Row(children[0] if children else ())
+
+    @staticmethod
+    def writes(children):
+        return Writes(tuple(int(c) for c in children))
 
     @staticmethod
     def note_value(children):

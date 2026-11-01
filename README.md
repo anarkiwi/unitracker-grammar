@@ -192,6 +192,7 @@ firing order is in [docs/format-2.5.md](docs/format-2.5.md).
 | the calls of a frame | `calls:{frame:3,full:[1,0,0]}` |
 | programs pausing | `holds:{pw:[read,note-1],ctrl:[step],b:[legato]}` |
 | global song cells | `global:[cut,res,route,mode,vol]` |
+| a control register written several times in a call | `{ctrl:[9,1,9,1]}`, ` ctrl:[9,1]` |
 | a voice-call's envelope writes | `{env:_._.64/_._.65}`, ` env:240.9.64/_._.65` |
 
 | operator | meaning |
