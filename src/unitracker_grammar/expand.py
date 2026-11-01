@@ -9,6 +9,7 @@ from lark import Token, Tree
 from unitracker_grammar import code as _code
 from unitracker_grammar.canonical import CanonicalError, parse
 from unitracker_grammar.chords import CHORDS
+from unitracker_grammar.expr import canonical
 from unitracker_grammar.prelude import PROGRAMS
 from unitracker_grammar.document import (
     KINDS,
@@ -140,13 +141,18 @@ def _with(doc: Document, kind: str, records: list) -> Document:
     )
 
 
-def hr(lead: int, ad: int, sr: int, test: int = 0, stop: int = 0) -> Program:
-    """The restart program ``hr(lead,ad,sr,test,stop)`` writes: ``lead`` ticks before the note
-    the gate off and the envelope ``ad``, ``sr``, with ``test`` the TEST bit set until the note,
-    with ``stop`` the control program stopped; the note's own row last."""
-    first = ({"hold": lead} if lead != 1 else {}) | ({"mask": 8} if test else {})
-    first |= {"gate": 0, "ad": ad, "sr": sr} | ({"run": Run("ctrl", Program())} if stop else {})
-    return Program([first, {"mask": 0} if test else {}])
+HR_MAX = 3
+RELEASE = canonical("v & 240")
+
+
+def hr(lead: int, ad: int | None = None, sr: int = 0, stop: int = 0) -> Program:
+    """The restart program ``hr(lead)`` writes: ``lead`` ticks before the note the gate off and
+    the release of the SR cell 0; with ``ad`` and ``sr`` the envelope ``ad``, ``sr`` instead, with
+    ``stop`` the control program stopped; the note's own row last."""
+    keys = {"hold": lead} if lead != 1 else {}
+    keys |= {"gate": 0}
+    keys |= {"sr": Once(Expr(RELEASE))} if ad is None else {"ad": ad, "sr": sr}
+    return Program([keys | ({"run": Run("ctrl", Program())} if stop else {}), {}])
 
 
 def _defined(doc: Document) -> set:
@@ -180,13 +186,11 @@ def _programs(doc: Document) -> Document:
             return value
         if value.name in defined:
             return value
-        params = PROGRAMS[value.name]
-        if not 3 <= len(value.args) <= len(params) or not all(
-            isinstance(a, int) for a in value.args
-        ):
-            raise CanonicalError(f"{value}: {value.name} takes 3 to {len(params)} integers")
-        if value.args[0] < 1:
-            raise CanonicalError(f"{value}: a restart's lead is a tick or more")
+        args = value.args
+        if len(args) not in (1, 3, 4) or not all(isinstance(a, int) for a in args):
+            raise CanonicalError(f"{value}: {value.name} takes 1, 3 or 4 integers")
+        if not 1 <= args[0] <= (HR_MAX if len(args) == 1 else args[0]):
+            raise CanonicalError(f"{value}: a restart's lead is 1 to {HR_MAX} ticks, or 1 or more")
         return hr(*value.args)
 
     return _order(doc, visit)

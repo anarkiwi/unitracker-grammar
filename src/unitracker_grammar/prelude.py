@@ -18,4 +18,4 @@ PRELUDE = {
     )
 }
 NAMES = frozenset(key.partition("(")[0] for key in PRELUDE)
-PROGRAMS = {"hr": ("lead", "ad", "sr", "test", "stop")}
+PROGRAMS = {"hr": ("k", "ad", "sr", "stop")}
