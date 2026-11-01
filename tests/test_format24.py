@@ -156,10 +156,12 @@ RESTART = (
     "meta:{title:T}\n"
     "ins:\n"
     " i1:{ad:9,restart:hr(2,15,0)}\n"
-    " i2:{restart:hr(1,15,0,1,1)}\n"
-    " hri(a):{sr:a,restart:hr(6,a,0,0,1)}\n"
+    " i2:{restart:hr(1,15,0,1)}\n"
+    " hri(a):{sr:a,restart:hr(6,a,0,1)}\n"
+    " i3:{restart:hr(3)}\n"
+    " i4:{restart:hr(1)}\n"
     "phrase:\n"
-    " p1:[C4.i1,D.i2,E.hri(3)]\n"
+    " p1:[C4.i1,D.i2,E.hri(3),F.i3,G.i4]\n"
     "song:\n"
     " - play:[p1]\n"
     " - end\n"
@@ -173,15 +175,18 @@ def core_text(text: str) -> str:
 def test_a_prelude_restart_reads_prints_and_expands_to_its_rows():
     assert printed(read(RESTART)) == RESTART and read(RESTART).version == "2.4"
     out = printed(expanded(read(RESTART)))
-    assert out.startswith("unitracker:2.3\n")
+    assert out.startswith("unitracker:2.5\n")
     assert " i1:{ad:9,restart:[{hold:2,gate:0,ad:15,sr:0},{},end]}\n" in out
-    assert " i2:{restart:[{mask:8,gate:0,ad:15,sr:0,run:ctrl[end]},{mask:0},end]}\n" in out
-    assert " i3:{sr:3,restart:[{hold:6,gate:0,ad:3,sr:0,run:ctrl[end]},{},end]}\n" in out
+    assert " i2:{restart:[{gate:0,ad:15,sr:0,run:ctrl[end]},{},end]}\n" in out
+    assert " i5:{sr:3,restart:[{hold:6,gate:0,ad:3,sr:0,run:ctrl[end]},{},end]}\n" in out
+    assert " i3:{restart:[{hold:3,gate:0,sr:'240 & v'!},{},end]}\n" in out
+    assert " i4:{restart:[{gate:0,sr:'240 & v'!},{},end]}\n" in out
 
 
 def test_a_document_s_own_hr_is_its_own_and_2_3():
     own = RESTART.replace("ins:\n", "restart:\n hr(h,a,s):[{hold:h,ad:a,sr:s},{},end]\nins:\n")
-    own = own.replace("hr(1,15,0,1,1)", "hr(1,15,0)").replace("hr(6,a,0,0,1)", "hr(6,a,0)")
+    own = own.replace("hr(1,15,0,1)", "hr(1,15,0)").replace("hr(6,a,0,1)", "hr(6,a,0)")
+    own = own.replace("hr(3)", "hr(3,1,1)").replace("hr(1)", "hr(1,1,1)")
     own = own.replace("2.4", "2.3")
     assert read(own).version == "2.3" and " i1:{ad:9,restart:hr(2,15,0)}\n" in core_text(own)
     for text in (own.replace("2.3", "2.4"), RESTART.replace("2.4", "2.3")):
@@ -189,7 +194,9 @@ def test_a_document_s_own_hr_is_its_own_and_2_3():
             parse(text)
 
 
-@pytest.mark.parametrize("call", ["hr(2,15)", "hr(2,15,0,0,0,0)", "hr(0,15,0)"])
-def test_a_prelude_restart_takes_a_lead_of_a_tick_or_more_and_3_to_5_integers(call):
+@pytest.mark.parametrize(
+    "call", ["hr(2,15)", "hr(2,15,0,0,0)", "hr(0,15,0)", "hr(0)", "hr(4)", "hr(1,2,3,4,5)"]
+)
+def test_a_prelude_restart_takes_a_lead_of_1_to_3_alone_or_a_tick_or_more_with_an_envelope(call):
     with pytest.raises(CanonicalError, match="hr"):
         expanded(read(RESTART.replace("hr(2,15,0)", call)))
