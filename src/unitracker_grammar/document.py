@@ -30,6 +30,7 @@ from unitracker_grammar.model import (  # pylint: disable=unused-import
     Code,
     Def,
     Document,
+    Env,
     Event,
     Expr,
     Group,
@@ -65,6 +66,7 @@ __all__ = [
     "VERSION_2_4",
     "VERSION_2_5",
     "Call",
+    "Env",
     "Code",
     "Def",
     "Document",
@@ -110,6 +112,8 @@ def _leaf(token: Token):
         return Call(token.partition("(")[0], _arguments(token))
     if token.type == "TIMES":
         return int(token[1:])
+    if token.type == "ENV":
+        return Env.of(token)
     return str(token)
 
 
@@ -444,7 +448,7 @@ for _name, _method in {
     **{f"ins_{k}": _link(k, normal=_param if k in ("ad", "sr") else _value) for k in _INS_KEYS},
     **{
         f"cmd_{k}": _link(k, normal=_token)
-        for k in "run ad sr ctrl res route mode vol pw cut freq".split()
+        for k in "run ad sr ctrl env res route mode vol pw cut freq".split()
     },
     **{f"cmd_{k}": _link(k, _pair) for k in ("tempo", "vtempo")},
     **{f"slot_{k}": _link(k, normal=_token) for k in ("mod", "hold", "reset")},

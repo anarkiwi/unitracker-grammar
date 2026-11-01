@@ -15,10 +15,10 @@ LAYERED_KINDS = ("ctrl", "pw", "filter")
 _INT = re.compile(r"\d+")
 PARAM = re.compile(r"(?!(?:v|phi|n|nn|ne|none|hold|reset|(?:pw|[cfiprs])\d+)\b)[a-z][a-z0-9_]*")
 _ROW_KEYS = (
-    "wait hold ctrl mask gate note ad sr pw cut res route route_on route_off mode freq run vol"
+    "wait hold ctrl mask gate note ad sr pw cut res route route_on route_off mode freq run vol env"
 ).split()
 _INS_KEYS = "ad sr ctrl pw filter freq restart".split()
-_CMD_KEYS = "run pw ad sr ctrl res route mode vol cut tempo vtempo freq legato".split()
+_CMD_KEYS = "run pw ad sr ctrl env res route mode vol cut tempo vtempo freq legato".split()
 _HOLD_EVENT = re.compile(r"(?:step|last|read|note|legato|event)(?:-[1-9]\d*)?|row(?:\.([a-z]+))?")
 
 
@@ -59,6 +59,29 @@ class Run(NamedTuple):
 
     kind: str
     program: object
+
+
+@dataclass(frozen=True)
+class Env:
+    """A voice-call's envelope writes: its segments ``(sr, ad, ctrl)``, each value an int or
+    None for the value held, written ``sr.ad.ctrl`` and separated by ``/``: ``_.9.64/_._.65``."""
+
+    segments: tuple
+
+    @classmethod
+    def of(cls, text: str) -> "Env":
+        """The Env of its written ``text``."""
+        return cls(
+            tuple(
+                tuple(None if v == "_" else int(v) for v in seg.split("."))
+                for seg in text.split("/")
+            )
+        )
+
+    def __str__(self):
+        return "/".join(
+            ".".join("_" if v is None else str(v) for v in seg) for seg in self.segments
+        )
 
 
 class Once(NamedTuple):
