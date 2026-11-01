@@ -84,6 +84,17 @@ class Env:
         )
 
 
+@dataclass(frozen=True)
+class Writes:
+    """A control register written ``values`` in order within one call, native order kept (a
+    sample player pulsing TEST): ``[9,1,9,1]``."""
+
+    values: tuple
+
+    def __str__(self):
+        return "[" + ",".join(map(str, self.values)) + "]"
+
+
 class Once(NamedTuple):
     """A binding that fires once, then leaves its slot unbound: ``snap()!``."""
 

@@ -204,7 +204,7 @@ _int: INT | PARAM
 row_: _LC "}" | _LC row_wait "}"
 row_wait: "wait:" _int (_SEP row_hold)? | row_hold
 row_hold: "hold:" _int (_SEP row_ctrl)? | row_ctrl
-row_ctrl: SLOT? "ctrl:" cell_value (_SEP row_ctrl)? | row_mask
+row_ctrl: SLOT? "ctrl:" (cell_value | writes) (_SEP row_ctrl)? | row_mask
 row_mask: "mask:" _int (_SEP row_gate)? | row_gate
 row_gate: "gate:" _int (_SEP row_note)? | row_note
 row_note: "note:" note_value (_SEP row_ad)? | row_ad
@@ -221,6 +221,9 @@ row_freq: SLOT? "freq:" cell_value (_SEP row_freq)? | row_run
 row_run: SLOT? "run:" (_program_ref | run_program) (_SEP row_run)? | row_vol
 row_vol: SLOT? "vol:" cell_value (_SEP row_vol)? | row_env
 row_env: "env:" ENV
+
+// a control register written several times in one call, in the order given
+writes: _LB INT (_SEP INT)+ "]"
 
 note_value: SIGNED | NOTE | REL_PARAM
 cell_value: _binding | NONE | HOLD | RESET | once
@@ -242,7 +245,7 @@ cmd_run: CMD_RUN (_program_ref | run_program | NONE) cmd_run | cmd_pw
 cmd_pw: CMD_PW (INT | _command | once) cmd_pw | cmd_ad
 cmd_ad: CMD_AD (INT | _command | once) cmd_ad | cmd_sr
 cmd_sr: CMD_SR (INT | _command | once) cmd_sr | cmd_ctrl
-cmd_ctrl: CMD_CTRL (INT | _command | once) cmd_ctrl | cmd_env
+cmd_ctrl: CMD_CTRL (INT | _command | once | writes) cmd_ctrl | cmd_env
 cmd_env: " env:" ENV cmd_env | cmd_res
 cmd_res: CMD_RES (INT | _command | once) cmd_res | cmd_route
 cmd_route: CMD_ROUTE (INT | _command | once) cmd_route | cmd_mode

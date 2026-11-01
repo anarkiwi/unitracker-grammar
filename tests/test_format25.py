@@ -20,6 +20,7 @@ from unitracker_grammar.document import (
     Row,
     Section,
     SongRow,
+    Writes,
     printed,
     read,
 )
@@ -542,3 +543,23 @@ def test_a_row_and_an_event_command_write_an_env(env):
 def test_an_env_has_one_to_four_segments_of_three_values(env):
     with pytest.raises(CanonicalError):
         parse(rows(f"env:{env}"))
+
+
+# ---- control write lists ------------------------------------------------------------------
+
+
+def test_a_row_and_an_event_command_write_a_control_list():
+    text = rows("ctrl:[9,1,9,1]")
+    refused_as(text, "2.4")
+    (row,) = read(text).records("ins")["i1"].get("ctrl").rows
+    assert row.keys == (("ctrl", Writes((9, 1, 9, 1))),)
+    text = events(" ctrl:[9,1]")
+    refused_as(text, "2.3")
+    (event,) = read(text).records("phrase")["p1"]
+    assert event.commands == (("ctrl", Writes((9, 1))),)
+
+
+@pytest.mark.parametrize("writes", ["[9]", "[]", "[9,]", "[a,b]", "[9,-1]"])
+def test_a_control_list_has_two_integers_or_more(writes):
+    with pytest.raises(CanonicalError):
+        parse(rows(f"ctrl:{writes}"))
