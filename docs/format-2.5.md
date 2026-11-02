@@ -12,7 +12,10 @@ which every rule not restated here keeps. A document is format 2.5 exactly where
 - a binding or a stop of `ctrl`, `ad`, `sr`, `res`, `route`, `mode` or `vol`, as a row key, an
   event command or (`ad`, `sr`) an instrument field, or a slot prefix on one;
 - an expression with an operator or function of [Expressions](#expressions) below that 2.4 lacked,
-  or a comparison that is not in parentheses of its own.
+  or a comparison that is not in parentheses of its own;
+- an expression that reads a cell by name ([Reading cells](#reading-cells));
+- a prefix `mask` on a key ([Terms](#terms));
+- a tempo of more than two entries ([Tempo lists](#tempo-lists)).
 
 Otherwise it is 2.4 where it has layers, orderlists or a call of a prelude program, else 2.3. The
 version line states it and a document whose line differs is refused. `Document.version` and
@@ -153,7 +156,7 @@ operators, loosest first (the precedence of playspec):
 | 9 | `a + b`, `a - b` | |
 | 10 | `a * b`, `a // b`, `a % b` | `//` and `%` floored; an error on a divisor of 0, 0 with `zero` |
 | 11 | `~a`, `-a` | bitwise not (`-a - 1`), negation |
-| 12 | `v phi N n`, literals, `(e)`, `F(k)`, `T[k]`, `abs min max`, `lo hi u8 u16 sx ite` | |
+| 12 | `v phi N n`, a cell's name, literals, `(e)`, `F(k)`, `T[k]`, `abs min max`, `lo hi u8 u16 sx ite` | |
 
 | function | value |
 |---|---|
@@ -174,7 +177,8 @@ binary literals, `true` and `false`, and memory access are playspec's alone. Ove
 range for a playspec expression to agree (no wrap before a shift or a comparison) the results are
 equal modulo 2^16; `tests/test_expr_playspec.py` checks it against pysidtracker.
 
-`expr.canonical` prints one text: the operands of `|`, `^`, `&`, `&&` and `||` in one order, sums
+A cell's name (`freq pw ctrl ad sr cut res route mode vol`) reads that cell's value
+([Reading cells](#reading-cells)). `expr.canonical` prints one text: the operands of `|`, `^`, `&`, `&&` and `||` in one order, sums
 and products as linear forms, parentheses where the precedence needs them.
 
 ## Calls
@@ -238,3 +242,67 @@ on a held call applies on the next call that is not held, with a clock equal to 
 program started on a held call counts from that call's clock. The filter program, one per layer
 for the song, is held on the events of the voice that started it. A held call changes nothing
 else: modulators fire, other kinds run and events apply as usual.
+
+## Tempo lists
+
+`tempo` is a list of ticks per step, `t0, t1, ...`, of one entry or more. The header takes
+`tempo:n` (one entry) or `tempo:[t0,t1,...]` (two or more; a list of one is written bare), the
+commands ` tempo:t0/t1/...` and ` vtempo:t0/t1/...` (` tempo:n` for one entry). Step `k` of a
+voice, counted from the last `tempo` or `vtempo` that applied to it (from the start of the song,
+at the header's list), starting at 0, lasts `t[k mod len]` ticks. `tempo` restarts every voice
+at entry 0, `vtempo` its own voice only; an entry of 0 is refused. `n` and `a/b` are the lists
+of one and two entries and play as before. The model holds a tuple (`Header.tempo`, the value of
+an `Event`'s `tempo` and `vtempo`; an int given is the list of one).
+
+## Terms
+
+Every cell has an output term, a second value the register takes combined with the cell and
+that is never fed back into the cell's `v`:
+
+| cell | register | combine | wrap |
+|---|---|---|---|
+| `ctrl` | `$D404 + 7(i-1)` | xor, `((ctrl ^ term) & $FE) \| (ctrl & gate & 1)` | |
+| `freq` | `+0`, `+1` | `freq + term` | `$FFFF` |
+| `pw` | `+2`, `+3` | `pw + term` | `$0FFF` |
+| `cut` | `$D415`, `$D416` | `cut + term` | `$07FF` |
+
+The terms of `ad`, `sr`, `res`, `route`, `mode` and `vol` are not defined: a nibble pair or
+sharing a register with another cell, they have neither a plain sum nor a plain xor (a carry
+across the nibbles of `ad`, `sr`, `mode`/`vol` or `res`/`route`) a document could mean, and a
+sum or an xor of the whole register gives a different byte from the term of a field. A prefix
+`mask` on any of them is refused.
+
+The term is named by the reserved slot prefix `mask`: `mask.freq:b`, `mask.pw:b`, `mask.cut:b`
+and `mask.ctrl:b`, as a program row key, an event command and an instrument field (`cut`'s is
+the `filter` field, `mask.filter:b`; `ctrl` has no instrument field). `mask` names no slot nor
+layer. `b` is
+
+| value | meaning |
+|---|---|
+| an expression, a call, `asm{...}` (in a command `'v + 1'`) | binds the term: from the tick it applies, in the cell's phase after the cell's slots, the term takes `e(v, phi, N, n)` wrapped to the cell's mask, `v` the term's own previous value, `phi` counting from the bind (a rebind to the same modulator keeps it), `N` and `n` of the voice that bound it |
+| an integer | a write that holds: in the cell's phase the term takes the value, and stays there |
+| `none` | ends the binding; the term holds its value |
+
+`hold`, `reset`, a once binding (`!`), a program or a list of writes are refused. The term
+starts at 0, so a document without it plays as before, and the registers' initial state
+(`regs`) is the cells', the terms 0. A song cell's term (`cut`) follows the cell's owner and
+`global` rules: a bind of the term counts as a bind of the cell for its owner, and the term
+fires with the cell's slots.
+
+`ctrl`'s term is the control mask of earlier formats: `mask:m` (an integer row key, immediate
+and holding until changed, only the bits `$FE`) is its integer write and keeps its text; a
+binding or a stop of it is `mask.ctrl:b`, and `mask.ctrl:m` with an integer is refused. A
+`mask:m` takes effect when the row applies, as before; an integer on another term in the cell's
+phase.
+
+## Reading cells
+
+An expression reads another cell by name, `freq pw ctrl ad sr cut res route mode vol`, the
+cell's current value: the voice's own cell for a voice cell, the song's for a song cell, of the
+voice that bound the slot (the term is not part of it). A cell's phase reads whatever value the
+other cell holds at that point of the tick's phase order: a cell whose phase has not yet run in
+the tick reads its value from the previous tick, so the `order` line decides it. An expression
+that names its own cell reads the cell's value as the tick began, not `v`. The names are no
+template parameters (a signature naming one is refused) and a code modulator cannot read a
+cell. `unitracker_grammar.expr.compile_expr` compiles the names as reads: the function takes a
+fifth argument, a mapping from each name in its `reads` to that cell's value.

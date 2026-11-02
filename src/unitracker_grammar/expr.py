@@ -3,8 +3,9 @@
 Integer literals, ``+ - *``, ``//`` (floor division), ``%`` (floor modulo), the bitwise ``| ^ &
 << >> ~``, the comparisons ``== != < <= > >=`` and the logic ``&& || !`` (each 1 or 0, the logic
 over any integer, 0 false), ``abs``, ``min``, ``max``, the wraps ``lo`` ``hi`` ``u8`` ``u16``
-``sx``, ``ite(c,a,b)``, ``v``, ``phi``, ``N`` (the sounding note), ``n`` (the event note), ``F(k)``
-(the frequency of note k) and ``T[k]`` for a named table ``T``; a template also reads named
+``sx``, ``ite(c,a,b)``, ``v``, ``phi``, ``N`` (the sounding note), ``n`` (the event note), a
+cell's name (``freq pw ctrl ad sr cut res route mode vol``: that cell's value), ``F(k)`` (the
+frequency of note k) and ``T[k]`` for a named table ``T``; a template also reads named
 parameters, lowercase names :func:`bind` replaces with integers. The operators have playspec's
 precedence, from the loosest ``||``, ``&&``, ``!``, a comparison, ``|``, ``^``, ``&``, the shifts,
 ``+ -``, ``* // %``, to the unary ``~`` and ``-``. An expression is a stdlib :mod:`ast` node,
@@ -17,6 +18,8 @@ import functools
 import re
 
 from lark import Token, Transformer, Tree
+
+from unitracker_grammar.cells import CELLS
 
 NAMES = ("v", "phi", "N", "n")
 CALLS = {
@@ -49,12 +52,17 @@ _OPERATORS = _BINARY | _BITWISE | _SHIFT
 _UNARY = {ast.USub: "(-{})", ast.Invert: "(~{})", ast.Not: "(0 if {} else 1)"}
 _GUARDED = {"//": "_div", "%": "_mod", "<<": "_shl", ">>": "_shr"}
 _PARAMS = "v, phi, N, n=0"
+_READING = _PARAMS + ", _c=None"
 _ATOMS = ("V", "PHI", "N", "EVENT_NOTE")
 _LOGIC = re.compile(r"&&|\|\||!(?!=)")
 _PYTHONIC = re.compile(r"\b(?:and|or|not)\b")
 _SPELLED = {"&&": " and ", "||": " or ", "!": " not "}
-_LATER_TOKENS = frozenset("OR AND NOT BOR BXOR BAND SHIFT INVERT LO HI U8 U16 SX ITE".split())
-_LATER_TEXT = re.compile(r"[|^&~]|<<|>>|!(?!=)|\b(?:lo|hi|u8|u16|sx|ite)\(")
+_LATER_TOKENS = frozenset(
+    "OR AND NOT BOR BXOR BAND SHIFT INVERT LO HI U8 U16 SX ITE CELLREAD".split()
+)
+_LATER_TEXT = re.compile(
+    rf"[|^&~]|<<|>>|!(?!=)|\b(?:lo|hi|u8|u16|sx|ite)\(|\b(?:{'|'.join(CELLS)})\b(?![(.])"
+)
 _COMPARING = re.compile(r"[()\[\]]|[=!<>]=|[<>]")
 
 
@@ -129,6 +137,8 @@ def _python(node, tables, zero: bool) -> str:
     ):
         return str(node.value)
     if isinstance(node, ast.Name):
+        if node.id in CELLS:
+            return f"_c[{node.id!r}]"
         if node.id not in NAMES:
             raise ExpressionError(f"unbound parameter {node.id!r}")
         return node.id
@@ -202,10 +212,11 @@ def tree(text: str) -> ast.expr:
 
 
 def source(expr: str | ast.expr, tables=(), zero: bool = False) -> str:
-    """Python source over ``v``, ``phi``, ``N``, ``n``, ``_F`` and ``_T`` of an expression text or
-    node; ``zero``: ``//`` and ``%`` by a divisor that is no nonzero literal call ``_div`` and
-    ``_mod``, 0 by a divisor of 0, and a shift by a count that is no literal of 0 or more call
-    ``_shl`` and ``_shr``, 0 by a negative count; else they raise ZeroDivisionError and
+    """Python source over ``v``, ``phi``, ``N``, ``n``, ``_c`` (a cell's name read as ``_c[name]``),
+    ``_F`` and ``_T`` of an expression text or node; ``zero``: ``//`` and ``%`` by a divisor that
+    is no nonzero literal call ``_div`` and ``_mod``, 0 by a divisor of 0, and a shift by a count
+    that is no literal of 0 or more call ``_shl`` and ``_shr``, 0 by a negative count;
+    else they raise ZeroDivisionError and
     ValueError."""
     return _python(tree(expr) if isinstance(expr, str) else expr, set(tables), zero)
 
@@ -384,7 +395,7 @@ def _atomic(terms: dict) -> bool:
 
 def _order(text: str) -> tuple:
     """The order of terms and factors: integers, names, then the rest, each by its text."""
-    return (0 if text.lstrip("-").isdigit() else 1 if text in NAMES else 2, text)
+    return (0 if text.lstrip("-").isdigit() else 1 if text in NAMES or text in CELLS else 2, text)
 
 
 def _div(a: int, b: int) -> int:
@@ -405,28 +416,40 @@ def _shr(a: int, b: int) -> int:
 
 def compile_expr(expr: str | ast.expr, namespace: dict, zero: bool = False):
     """A function ``(v, phi, N, n=0) -> int`` of an expression text or node (``zero`` as in
-    :func:`source`).
+    :func:`source`), whose ``reads`` are the cell names it reads: it takes then a fifth argument,
+    a mapping of each of them to that cell's value.
 
     ``namespace``, the function's globals, holds ``_F(k)``, the frequency of format note k, and
     ``_T``, each named table's function of its index.
     """
-    body = source(expr, namespace["_T"], zero)
+    node = tree(expr) if isinstance(expr, str) else expr
+    body = source(node, namespace["_T"], zero)
+    reading = reads(node)
+    args = _READING if reading else _PARAMS
     if zero:
         guards = "_div, _mod, _shl, _shr"
         # pylint: disable-next=eval-used
-        return eval(f"lambda {guards}: lambda {_PARAMS}: {body}", namespace)(_div, _mod, _shl, _shr)
-    return eval(f"lambda {_PARAMS}: {body}", namespace)  # pylint: disable=eval-used
+        fn = eval(f"lambda {guards}: lambda {args}: {body}", namespace)(_div, _mod, _shl, _shr)
+    else:
+        fn = eval(f"lambda {args}: {body}", namespace)  # pylint: disable=eval-used
+    fn.reads = reading
+    return fn
+
+
+def reads(node) -> frozenset:
+    """The cell names expression node ``node`` reads."""
+    return frozenset(n.id for n in ast.walk(node) if isinstance(n, ast.Name) and n.id in CELLS)
 
 
 def _named(node) -> list:
-    """The parameter nodes of an expression node: its names but ``v``, ``phi``, ``N``, ``n`` and
-    the names of its calls and tables."""
+    """The parameter nodes of an expression node: its names but ``v``, ``phi``, ``N``, ``n``, the
+    cells' and the names of its calls and tables."""
     skip = {id(n.func) for n in ast.walk(node) if isinstance(n, ast.Call)}
     skip |= {id(n.value) for n in ast.walk(node) if isinstance(n, ast.Subscript)}
     return [
         n
         for n in ast.walk(node)
-        if isinstance(n, ast.Name) and n.id not in NAMES and id(n) not in skip
+        if isinstance(n, ast.Name) and n.id not in NAMES and n.id not in CELLS and id(n) not in skip
     ]
 
 
@@ -499,7 +522,7 @@ class Nodes(Transformer):
             return head
         if head.type in ("INT", "SIGNED"):
             return ast.Constant(int(head))
-        if head.type in _ATOMS or head.type == "PARAM":
+        if head.type in _ATOMS or head.type in ("PARAM", "CELLREAD"):
             return ast.Name(str(head))
         if head.type == "XTABLE":
             return ast.Subscript(ast.Name(str(head)), rest[0])

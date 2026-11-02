@@ -5,6 +5,9 @@ cell wraps its value to."""
 CELLS = ("freq", "pw", "cut", "ctrl", "ad", "sr", "res", "route", "mode", "vol")
 VOICE_CELLS = ("freq", "pw", "ctrl", "ad", "sr")
 SONG_CELLS = ("cut", "res", "route", "mode", "vol")
+TERMS = ("freq", "pw", "cut", "ctrl")
+ADDED = ("freq", "pw", "cut")
+TERM = "mask"
 LATER_CELLS = ("ctrl", "ad", "sr", "res", "route", "mode", "vol")
 MASKS = {
     "freq": 0xFFFF,

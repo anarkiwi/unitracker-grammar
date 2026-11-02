@@ -249,7 +249,7 @@ def test_a_signature_other_than_the_body_s_parameters_is_refused(wrong, right, r
 def test_a_document_s_program_templates_are_their_kinds_and_parameters():
     tree = parse(PROGRAMS)
     assert programs(tree) == {
-        "hr": ("restart", ("h", "ad", "sr")),
+        "hr": ("restart", ("h", "a", "s")),
         "arp": ("ctrl", ("a", "b")),
         "pt": ("pw", ("b",)),
         "fl": ("filter", ("c",)),

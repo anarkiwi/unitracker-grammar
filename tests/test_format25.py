@@ -5,7 +5,7 @@ import re
 
 import pytest
 
-from unitracker_grammar import CanonicalError, GRAMMAR, cells, code, parse
+from unitracker_grammar import CanonicalError, GRAMMAR, cells, code, expr, parse
 from unitracker_grammar.code import CodeError, Call
 from unitracker_grammar.document import (
     Code,
@@ -19,6 +19,7 @@ from unitracker_grammar.document import (
     Program,
     Row,
     Section,
+    Slot,
     SongRow,
     Writes,
     printed,
@@ -563,3 +564,154 @@ def test_a_row_and_an_event_command_write_a_control_list():
 def test_a_control_list_has_two_integers_or_more(writes):
     with pytest.raises(CanonicalError):
         parse(rows(f"ctrl:{writes}"))
+
+
+# ---- tempo lists --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "head,tempo,version",
+    [
+        ("tempo:6\n", (6,), "2.3"),
+        ("tempo:[6,5]\n", (6, 5), "2.3"),
+        ("tempo:[6,5,4]\n", (6, 5, 4), "2.5"),
+    ],
+)
+def test_a_header_tempo_is_a_list_and_a_long_one_is_format_2_5(head, tempo, version):
+    text = doc(version, head)
+    assert read(text).header.tempo == tempo and read(text).version == version
+    assert printed(read(text)) == text
+
+
+@pytest.mark.parametrize(
+    "command,tempo,version",
+    [
+        (" tempo:5", (5,), "2.3"),
+        (" tempo:5/4", (5, 4), "2.3"),
+        (" vtempo:5/4/3/2", (5, 4, 3, 2), "2.5"),
+    ],
+)
+def test_a_tempo_command_is_a_list_and_a_long_one_is_format_2_5(command, tempo, version):
+    text = events(command, version=version)
+    (event,) = read(text).records("phrase")["p1"]
+    assert event.commands == ((command.split(":")[0].strip(), tempo),)
+    assert printed(read(text)) == text and read(text).version == version
+
+
+@pytest.mark.parametrize("head", ["tempo:[6]\n", "tempo:[]\n", "tempo:[6,]\n", "tempo:6/5\n"])
+def test_a_header_tempo_of_one_entry_is_written_bare(head):
+    with pytest.raises(CanonicalError):
+        parse(doc("2.5", head))
+
+
+def test_a_long_tempo_is_refused_under_an_older_version_line():
+    for text in (doc("2.3", "tempo:[6,5,4]\n"), events(" tempo:1/2/3", version="2.3")):
+        with pytest.raises(CanonicalError, match="exactly where"):
+            parse(text)
+
+
+def test_the_model_normalises_a_tempo_to_its_entries():
+    assert Header(tempo=6).tempo == (6,) and Header(tempo=[1, 2, 3]).tempo == (1, 2, 3)
+    assert Event("C4", commands={"tempo": 4}).commands == (("tempo", (4,)),)
+    with pytest.raises(ValueError, match="tempo"):
+        Header(tempo=())
+
+
+# ---- terms --------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("cell", ["freq", "pw", "cut"])
+def test_a_term_is_a_row_key_an_event_command_and_an_instrument_field(cell):
+    text = rows(f"mask.{cell}:5,mask.{cell}:v + 1,mask.{cell}:none")
+    refused_as(text, "2.4")
+    (row,) = read(text).records("ins")["i1"].get("ctrl").rows
+    assert [k for k, _ in row.keys] == [f"mask.{cell}"] * 3
+    refused_as(events(f" mask.{cell}:5", f" mask.{cell}:'v - 1'"), "2.3")
+    refused_as(events(f" mask.{cell}:m(1)", f" mask.{cell}:none"), "2.3")
+
+
+@pytest.mark.parametrize("key", ["mask.freq", "mask.pw", "mask.filter"])
+def test_an_instrument_field_prefixed_mask_is_a_term(key):
+    text = doc("2.5", f"{MODS}ins:\n i1:{{{key}:m(2)}}\n")
+    assert read(text).records("ins")["i1"].fields == ((key, Call("m", (2,))),)
+    refused_as(text, "2.4")
+
+
+def test_ctrl_s_term_is_mask_for_an_integer_and_prefixed_for_a_binding():
+    text = rows("ctrl:65,mask.ctrl:v + 1,mask.ctrl:none,mask:8")
+    assert read(text).version == "2.5" and printed(read(text)) == text
+    plain = rows("ctrl:65,mask:8", version="2.3")
+    assert read(plain).version == "2.3" and printed(read(plain)) == plain
+
+
+@pytest.mark.parametrize(
+    "keys",
+    [
+        "mask.ctrl:8",
+        "mask.ad:3",
+        "mask.vol:v + 1",
+        "mask.freq:hold",
+        "mask.freq:reset",
+        "mask.pw:m(1)!",
+        "mask.pw:[{pw:1},end]",
+        "mask.ctrl:[9,1]",
+    ],
+)
+def test_a_term_is_a_binding_an_integer_or_none_of_freq_pw_cut_or_ctrl(keys):
+    with pytest.raises((CanonicalError, CodeError)):
+        parse(rows(keys))
+
+
+def test_ctrl_has_no_instrument_term_and_mask_names_no_slot_nor_layer():
+    with pytest.raises((CodeError, CanonicalError)):
+        parse(doc("2.5", f"{MODS}ins:\n i1:{{mask.ctrl:m(1)}}\n"))
+    with pytest.raises(CodeError, match="term"):
+        parse(doc("2.5", "slots:{freq:{mask:{}}}\n"))
+    with pytest.raises(CodeError, match="term"):
+        parse(doc("2.5", "layers:{pw:[mask,b]}\n"))
+    with pytest.raises(ValueError, match="term"):
+        Header(slots={"freq": [Slot("mask")]})
+    with pytest.raises(ValueError, match="term"):
+        Header(layers={"pw": ["a", "mask"]})
+
+
+def test_a_model_with_a_term_is_format_2_5():
+    row = Row({"mask.pw": 5})
+    ins = Instrument({"ctrl": Program([row]), "ad": 1})
+    assert (
+        Document(
+            Header(meta={"title": "T"}), defs=[("ins", [("i1", ins)])], rows=[SongRow(["p1"])]
+        ).version
+        == "2.5"
+    )
+
+
+# ---- cells read by name -------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("cell", cells.CELLS)
+def test_an_expression_reads_a_cell_by_name(cell):
+    text = rows(f"ad:{cell} + v", f"pw:{cell}")
+    refused_as(text, "2.4")
+    assert expr.canonical(f"{cell} + v") == " + ".join(sorted([cell, "v"]))
+    assert expr.reads(expr.tree(f"v + {cell}*{cell}")) == {cell}
+
+
+def test_a_cell_s_name_is_no_template_parameter():
+    for sig in ("m(freq)", "m(a,ad)", "m(vol)"):
+        with pytest.raises(CanonicalError):
+            parse(doc("2.5", f"mod:\n {sig}:v + 1\n"))
+    with pytest.raises(CodeError, match="cells"):
+        code.signature("m(a,sr)")
+    with pytest.raises(CanonicalError):
+        parse(doc("2.5", "restart:\n r(a,ad):[{hold:a,ad:ad},end]\n"))
+    assert code.signature("m(a,adx)") == ("m", ("a", "adx"))
+
+
+def test_a_compiled_expression_takes_the_cells_it_reads():
+    fn = expr.compile_expr("v + pw*2 + ad", {"_F": None, "_T": {}}, zero=True)
+    assert fn.reads == {"pw", "ad"} and fn(10, 0, 0, 0, {"pw": 3, "ad": 100}) == 116
+    plain = expr.compile_expr("v + 1", {"_F": None, "_T": {}})
+    assert plain.reads == frozenset() and plain(1, 0, 0) == 2
+    with pytest.raises(ExpressionError):
+        expr.source("freq + mask")

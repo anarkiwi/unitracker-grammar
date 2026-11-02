@@ -153,10 +153,6 @@ def _param(value):
     return value.text if isinstance(value, Expr) and PARAM.fullmatch(value.text) else value
 
 
-def _pair(values):
-    return values[0] if len(values) == 1 else tuple(values)
-
-
 def _link(key, convert=lambda own: own[0], normal=_value):
     """A key chain's link: its own ``(key, value)``, a slot prefix's key, then the rest."""
 
@@ -240,7 +236,7 @@ class _ToModel(Transformer):
 
     @staticmethod
     def tempo(children):
-        return ("tempo", _pair([int(c) for c in children]))
+        return ("tempo", tuple(int(c) for c in children))
 
     @staticmethod
     def events(children):
@@ -456,7 +452,7 @@ for _name, _method in {
         f"cmd_{k}": _link(k, normal=_token)
         for k in "run ad sr ctrl env res route mode vol pw cut freq".split()
     },
-    **{f"cmd_{k}": _link(k, _pair) for k in ("tempo", "vtempo")},
+    **{f"cmd_{k}": _link(k, tuple) for k in ("tempo", "vtempo")},
     **{f"slot_{k}": _link(k, normal=_token) for k in ("mod", "hold", "reset")},
     **{f"state_{k}": _link(k) for k in CELLS},
     **{f"layers_{k}": _link(k) for k in LAYERED_KINDS},
@@ -551,8 +547,8 @@ def _program(program: Program) -> str:
 def _command(key: str, value) -> str:
     if key == "legato":
         return " legato"
-    if isinstance(value, tuple) and not isinstance(value, (Call, Run, Def, Once)):
-        return f" {key}:{value[0]}/{value[1]}"
+    if key in ("tempo", "vtempo"):
+        return f" {key}:{'/'.join(map(str, value))}"
     return f" {key}:{_binding(value, 'cmd')}"
 
 
@@ -650,7 +646,8 @@ def _header(head: Header) -> list:
     if head.voices is not None:
         lines.append(f"voices:{head.voices}\n")
     if head.tempo is not None:
-        lines.append(f"tempo:{_flat(head.tempo)}\n")
+        tempo = head.tempo[0] if len(head.tempo) == 1 else _flat(head.tempo)
+        lines.append(f"tempo:{tempo}\n")
     if head.slots is not None:
         cells = [(c, [(s.name, _slot(s)) for s in slots]) for c, slots in head.slots]
         lines.append(f"slots:{_flat(cells)}\n")
