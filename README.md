@@ -40,7 +40,7 @@ its own context, and a play entry's transpose applies after; `init`'s notes and 
 `note:` always carry theirs. `read` also accepts a repeated octave; `printed` leaves it out.
 
 After `meta`, each optional and in this order: `clock` (`{cycles_per_tick:C,clock_hz:H}`,
-`H` the machine's clock the note table is computed at), `voices`, `tempo`; `slots`, per cell its modulator slots in firing order, each with its default
+`H` the machine's clock the note table is computed at), `voices`, `tempo` (`tempo:n` or `tempo:[t0,t1,...]`, a list of ticks per step); `slots`, per cell its modulator slots in firing order, each with its default
 binding and the events it holds and resets on
 (`slots:{freq:{wave:{mod:note(),reset:[row.note]},tick:{hold:[step-1,row]}}}`); `layers`
 (format 2.4, below); `holds` (format 2.5, below); `order`, the
@@ -86,7 +86,8 @@ each where it is written (`Def(name, value, args)` at a use), so `printed` write
 
 A
 modulator's and a program's signature take the same parameter names: lowercase names but `v`,
-`phi`, `n`, `nn`, `ne`, `none`, `hold`, `reset` and a record's name (`c1`, `pw2`). A table is
+`phi`, `n`, `nn`, `ne`, `none`, `hold`, `reset`, a cell's name (`freq pw ctrl ad sr cut res route
+mode vol`) and a record's name (`c1`, `pw2`). A table is
 named by a capitalised name but `F` and `N`. A row's control mask is its own key (`{ctrl:65,
 mask:8}`), as are the routing's forms (`route:m` sets it, `route_on:m` and `route_off:m` add
 and remove this voice's bit and `m`); ` res:r` and ` route:m` set the resonance and the
@@ -194,6 +195,9 @@ firing order is in [docs/format-2.5.md](docs/format-2.5.md).
 | global song cells | `global:[cut,res,route,mode,vol]` |
 | a control register written several times in a call | `{ctrl:[9,1,9,1]}`, ` ctrl:[9,1]` |
 | a voice-call's envelope writes | `{env:_._.64/_._.65}`, ` env:240.9.64/_._.65` |
+| a tempo of any length | `tempo:[6,5,4]`, ` tempo:6/5/4`, ` vtempo:6/5/4` |
+| a cell's output term | `{mask.freq:v + 1,mask.pw:300}`, ` mask.cut:none`, `{mask.filter:m(2)}` (instrument) |
+| a cell read by name | `{freq:pw + 4}`, `'ad + v'` |
 
 | operator | meaning |
 |---|---|
@@ -202,7 +206,8 @@ firing order is in [docs/format-2.5.md](docs/format-2.5.md).
 | `\|` `^` `&` `<<` `>>` `~` | bitwise, shifts and not |
 | `+ - * // %` | floored, as before |
 
-A document is 2.5 exactly where it has any of these; `Document.version` says so. Without
+A document is 2.5 exactly where it has any of these (docs/format-2.5.md has the tempo lists, the
+terms and the cell reads); `Document.version` says so. Without
 `calls` a frame is one full call.
 
 ## Install
@@ -245,7 +250,8 @@ fn(10, 1, 48)                               # (v, phi, N, n=0) -> 12
 ```
 
 `v` is the cell's value, `phi` the modulator's tick count, `N` the sounding note and `n` the event
-note; a template's other lowercase names are its parameters, which `params` lists and `bind`
+note; a cell's name reads that cell (`fn.reads` lists the names, and the function then takes a
+mapping of them as a fifth argument); a template's other lowercase names are its parameters, which `params` lists and `bind`
 replaces with integers. `source` is the Python source of an expression (`ExpressionError` outside the grammar),
 `printed` the one text of a node and `written` an integer literal as an int. `//` and `%` raise
 `ZeroDivisionError` on a divisor of 0 and a shift `ValueError` on a negative count; with
@@ -335,7 +341,7 @@ doc = replace(doc, loop=None)                                # edits are datacla
 | class | holds |
 |---|---|
 | `Document(header, tables, mods, defs, init, rows, loop)` | `tables` `{name: ints}`; `mods` the templates `(signature, Expr \| Code)`; `defs` the `restart`, `ins`, `ctrl`, `pw`, `filter`, `phrase` and `section` sections in that order (`Section`s, or `{kind: [(name, value)]}`); `init` events or None; `rows` song items (SongRows, or play entry lists, Parts and Groups); `loop` the item it loops to, None for `end` |
-| `Header(meta, clock, voices, tempo, slots, layers, holds, order, state, regs, lag, calls, global_cells)` | each line, None where not written (the version line is `Document.version`: `VERSION_2_5`, `"2.5"`, with a construct of format 2.5, else `VERSION_2_4`, `"2.4"`, with layers, orderlists or a prelude program, else `VERSION`, `"2.3"`); `layers` `{kind: names}` in `LAYERED_KINDS` order; `clock` `(cycles_per_tick, clock_hz)`; `holds` `(key, events)` pairs; `calls` `(frame, full)`; `meta` texts as written (`"'A, B'"` quoted); `slots` `{cell: [Slot]}`, `state` `{cell: [(name, size)]}`; `slot(cell)` its Slots |
+| `Header(meta, clock, voices, tempo, slots, layers, holds, order, state, regs, lag, calls, global_cells)` | each line, None where not written (the version line is `Document.version`: `VERSION_2_5`, `"2.5"`, with a construct of format 2.5, else `VERSION_2_4`, `"2.4"`, with layers, orderlists or a prelude program, else `VERSION`, `"2.3"`); `layers` `{kind: names}` in `LAYERED_KINDS` order; `clock` `(cycles_per_tick, clock_hz)`; `tempo` the tuple of its entries (an `Event`'s `tempo` and `vtempo` too); `holds` `(key, events)` pairs; `calls` `(frame, full)`; `meta` texts as written (`"'A, B'"` quoted); `slots` `{cell: [Slot]}`, `state` `{cell: [(name, size)]}`; `slot(cell)` its Slots |
 | `Slot(name, mod, hold, reset)` | a slot's default binding and its events (`"note-1"`, `"row.freq"`) |
 | `SongRow(play)` | play entries (`Play(phrase, transpose)`, `"~"`, `"end"`; a phrase is a name or inline events) |
 | `Section(kind, records)` | `(name, value)` records of one kind; a template's name is its `signature` (`arp(a,b)`), its rows reading parameters as strings (`ad: "a"`, `note: "+a"`, `Call("walk", ("b",))`); a `pw` or `filter` record `Program([{"pw": b}])` (`cut` for `filter`) is stored as `b` |

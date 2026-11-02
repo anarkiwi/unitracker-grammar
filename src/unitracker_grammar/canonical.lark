@@ -38,7 +38,8 @@
 // and functions of playspec; the calls line (the play calls of a frame and which are full); the
 // holds line (the events on which a program kind or layer does not advance); and the song cells
 // res, route, mode and vol in the global line. A document is 2.5 exactly where it has any of
-// them (docs/format-2.5.md).
+// them (docs/format-2.5.md), as do a tempo of more than two entries, the output term of a cell
+// (the prefix mask on a freq, pw, cut or ctrl key) and an expression that reads a cell by name.
 
 start: FORMAT _NL meta _NL _from_clock? "song:" _NL (item+ ending | voice+)
 // the optional lines after meta, in order: a chain of rules, each the lines from one on, so
@@ -75,7 +76,7 @@ text: TEXT | SQUOTED | DQUOTED
 // clock_hz is the machine's clock, the note table F(k) (notes.py) computed at it
 clock: "clock:{cycles_per_tick:" INT ",clock_hz:" INT "}"
 voices: "voices:" INT
-tempo: "tempo:" (INT | "[" INT "," INT "]")
+tempo: "tempo:" (INT | "[" INT ("," INT)+ "]")
 
 // per cell, its slots in firing order, each with its default binding and the events it holds
 // and resets on; a cell left out has one slot, named after it, with none
@@ -252,8 +253,8 @@ cmd_route: CMD_ROUTE (INT | _command | once) cmd_route | cmd_mode
 cmd_mode: CMD_MODE (INT | _command | once) cmd_mode | cmd_vol
 cmd_vol: CMD_VOL (INT | _command | once) cmd_vol | cmd_cut
 cmd_cut: CMD_CUT (INT | _command | once) cmd_cut | cmd_tempo
-cmd_tempo: " tempo:" INT ("/" INT)? cmd_vtempo | cmd_vtempo
-cmd_vtempo: " vtempo:" INT ("/" INT)? cmd_freq | cmd_freq
+cmd_tempo: " tempo:" INT ("/" INT)* cmd_vtempo | cmd_vtempo
+cmd_vtempo: " vtempo:" INT ("/" INT)* cmd_freq | cmd_freq
 cmd_freq: CMD_FREQ (SIGNED | INT | _command | once) cmd_freq | cmd_legato
 cmd_legato: LEGATO |
 _command: CALL | asm | qexpr | use_template | NONE | HOLD | RESET
@@ -292,7 +293,7 @@ expr: land (OR land)*
 ?shift: sum (SHIFT sum)*
 ?sum: term (ADD term)*
 term: factor (MUL factor | FLOORDIV factor | MOD factor)*
-factor: INT | SIGNED | V | PHI | N | EVENT_NOTE | PARAM
+factor: INT | SIGNED | V | PHI | N | EVENT_NOTE | PARAM | CELLREAD
       | F expr ")" | XTABLE "[" expr "]"
       | ABS expr ")" | MIN expr _SEP expr ")" | MAX expr _SEP expr ")"
       | LO expr ")" | HI expr ")" | U8 expr ")" | U16 expr ")" | SX expr ")"
@@ -342,8 +343,10 @@ CMD_ROUTE: / (?:[a-z][a-z0-9_]*\.)?route:/
 CMD_MODE: / (?:[a-z][a-z0-9_]*\.)?mode:/
 CMD_VOL: / (?:[a-z][a-z0-9_]*\.)?vol:/
 // a template's parameter: a lowercase name, but a name a template's body or a cell value
-// reads otherwise and a record's name (pw1, c1, f1, ...)
-_PARAM_NAME: /(?!(?:v|phi|n|nn|ne|none|hold|reset|(?:pw|[cfiprs])\d+)\b)[a-z][a-z0-9_]*\b/
+// reads otherwise, a cell's name and a record's name (pw1, c1, f1, ...)
+_PARAM_NAME: /(?!(?:v|phi|n|nn|ne|none|hold|reset|freq|pw|ctrl|ad|sr|cut|res|route|mode|vol|(?:pw|[cfiprs])\d+)\b)[a-z][a-z0-9_]*\b/
+// an expression reads another cell of its voice (the song's, for a song cell) by name
+CELLREAD: /(?:freq|pw|ctrl|ad|sr|cut|res|route|mode|vol)\b(?![(.])/
 PARAM: _PARAM_NAME /(?!\()/
 REL_PARAM: /[+-]/ _PARAM_NAME
 // a table's name: a capitalised name but F and N

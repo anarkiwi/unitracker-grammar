@@ -18,7 +18,7 @@ from lark import Lark, Token, Transformer, Tree, exceptions
 
 from unitracker_grammar import expr
 from unitracker_grammar.canonical import GRAMMAR, CanonicalError
-from unitracker_grammar.cells import CELLS, LATER_CELLS, LATER_PHASES
+from unitracker_grammar.cells import CELLS, LATER_CELLS, LATER_PHASES, TERM, TERMS
 from unitracker_grammar.chords import CHORDS
 from unitracker_grammar.prelude import NAMES as PRELUDE
 from unitracker_grammar.prelude import PROGRAMS
@@ -77,11 +77,13 @@ def call(text: str) -> Call:
 
 def signature(text: str) -> tuple[str, tuple[str, ...]]:
     """``(name, parameters)`` of a ``SIGNATURE`` text, ``name(a,b)`` or ``name()``;
-    CodeError when a parameter is declared twice."""
+    CodeError when a parameter is declared twice or is a cell's name."""
     name, names = _CALL.fullmatch(text).groups()
     declared = tuple(names.split(",")) if names else ()
     if len(set(declared)) != len(declared):
         raise CodeError(f"{text}: a parameter declared twice")
+    if named := sorted(set(declared) & set(CELLS)):
+        raise CodeError(f"{text}: {named} are cells' names, which an expression reads")
     return name, declared
 
 
@@ -609,16 +611,75 @@ def check_document(tree: Tree) -> Tree:
                 if token.split(".")[0] not in tables:
                     raise expr.ExpressionError(f"unknown table {token.split('.')[0]!r}")
     _short_records(tree)
+    _terms(tree)
     if clash := sorted((named | phrases(tree).keys()) & PRELUDE):
         raise CodeError(f"{clash} name prelude templates, which a document does not define")
     _version(tree, named)
     return tree
 
 
+_PREFIXES = frozenset({"SLOT", *(f"CMD_{c.upper()}" for c in CELLS), "CMD_RUN"})
+_PREFIXED = re.compile(r" ?mask\.")
+_EXPRESSION = frozenset({"fexpr", "expr", "term", "factor"})
+_NOT_BINDINGS = frozenset(
+    "once writes program use_ctrl use_pw use_filter HOLD RESET CTRL PW FILTER".split()
+)
+
+
+def _key(link: Tree) -> tuple:
+    """``(prefix, value)`` of a row's, an instrument's or a command's key in a parse tree: its
+    slot prefix token (None where unprefixed) and its own value, the first child that is neither
+    the prefix nor the next link of the chain."""
+    prefix = next((c for c in link.children if isinstance(c, Token) and c.type in _PREFIXES), None)
+    value = next(
+        (
+            c
+            for c in link.children
+            if c is not prefix and not (isinstance(c, Tree) and c.data.startswith(_LINKS))
+        ),
+        None,
+    )
+    return prefix, value
+
+
+def _kind(value) -> str:
+    """What a term's value in a parse tree is: ``int``, ``none``, ``bind`` or ``other`` (a stop
+    but ``none``, a once binding, a program or a list of writes)."""
+    while isinstance(value, Tree) and value.data in ("cell_value", "modulation", *_EXPRESSION):
+        if len(value.children) != 1:
+            break
+        value = value.children[0]
+    if isinstance(value, Token):
+        return {"INT": "int", "PARAM": "int", "NONE": "none"}.get(
+            value.type, "other" if value.type in _NOT_BINDINGS else "bind"
+        )
+    return "other" if value.data in _NOT_BINDINGS else "bind"
+
+
+def _terms(tree: Tree):
+    """CodeError where a cell's term is misspelt: the prefix ``mask`` names the term of ``freq``,
+    ``pw`` and ``cut`` (an instrument's ``filter``) and ``ctrl`` (a row's and a command's), its
+    value a binding, an integer (``ctrl``'s is written ``mask:m``) or ``none``; no slot nor layer
+    is named ``mask``."""
+    for node in tree.iter_subtrees():
+        if node.data == "slot" and node.children[0] == TERM:
+            raise CodeError(f"{TERM} is the name of a cell's term, not of a slot")
+        if node.data == "layer_names" and TERM in node.children:
+            raise CodeError(f"{TERM} is the name of a cell's term, not of a layer")
+        head, _, cell = node.data.partition("_")
+        prefix, value = _key(node) if head in ("row", "cmd", "ins") else (None, None)
+        if prefix is None or not _PREFIXED.match(prefix):
+            continue
+        cell, kind = {"filter": "cut"}.get(cell, cell), _kind(value)
+        if cell not in TERMS or (head == "ins" and cell == "ctrl") or kind == "other":
+            raise CodeError(f"{node.data}: {TERM}. names the term of {TERMS}, a binding or none")
+        if kind == "int" and cell == "ctrl":
+            raise CodeError(f"{TERM}.ctrl: an integer is written {TERM}:m")
+
+
 _LATER_KEYS = tuple(f"{p}_{c}" for p in ("row", "cmd") for c in LATER_CELLS)
 _LATER_KEYS += ("ins_ad", "ins_sr")
 _LINKS = ("row_", "cmd_", "ins_")
-_EXPRESSION = frozenset({"fexpr", "expr", "term", "factor"})
 
 
 def _plain(value) -> bool:
@@ -644,8 +705,16 @@ def _binds(link: Tree) -> bool:
     return False
 
 
+def _termed(node: Tree) -> bool:
+    """Whether a row's, an instrument's or a command's key in a parse tree is a term's, prefixed
+    ``mask``."""
+    prefix = _key(node)[0] if node.data.startswith(_LINKS) else None
+    return prefix is not None and bool(_PREFIXED.match(prefix))
+
+
 def _later_node(node: Tree) -> bool:
     """Whether one node of a document's parse tree is a construct of format 2.5."""
+    # pylint: disable=too-many-return-statements
     tokens = [c for c in node.children if isinstance(c, Token)]
     if node.data == "global_cells":
         return any(t.type != "GCUT" for t in tokens)
@@ -657,7 +726,9 @@ def _later_node(node: Tree) -> bool:
         return any(t in LATER_PHASES for t in tokens)
     if node.data in STATE_RULES:
         return node.data not in ("state_freq", "state_pw", "state_cut")
-    return node.data in _LATER_KEYS and _binds(node)
+    if node.data in ("tempo", "cmd_tempo", "cmd_vtempo"):
+        return len(tokens) > 2
+    return node.data in _LATER_KEYS and _binds(node) or _termed(node)
 
 
 def format_2_5(tree: Tree) -> bool:
@@ -685,9 +756,9 @@ def _version(tree: Tree, named):
         raise CanonicalError(
             f"a document is format {wanted} exactly where it has a construct of that format: "
             "2.5 an env, a calls, holds or global line but the cutoff's, a binding of ctrl, ad, "
-            "sr, "
-            "res, route, mode or vol, a slots, state or order line for them, or an expression with "
-            "the bitwise, logic or wrap operators; 2.4 layers, orderlists or a prelude program"
+            "sr, res, route, mode or vol, a slots, state or order line for them, an expression "
+            "with the bitwise, logic or wrap operators or a cell's name, a tempo of more than two "
+            "entries, or a mask term; 2.4 layers, orderlists or a prelude program"
         )
 
 

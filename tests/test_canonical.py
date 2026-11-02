@@ -746,7 +746,7 @@ def test_other_inline_spellings_are_refused(text):
 
 PROGRAMS = (
     "unitracker:2.3\nmeta:{title:T}\nmod:\n walk(s):v + s\n"
-    "restart:\n hr(h,ad,sr):[{hold:h,gate:0,ad:ad,sr:sr},end]\n"
+    "restart:\n hr(h,a,s):[{hold:h,gate:0,ad:a,sr:s},end]\n"
     "ins:\n i1:{ad:9,ctrl:arp(7,-4),pw:pt(3),filter:fl(5),restart:hr(2,9,220)}\n"
     "ctrl:\n arp(a,b):[{ctrl:a,note:+a},{wait:a,gate:b,note:-b,"
     "run:pt(b)},{run:fl(a)},{loop:0}]\n"
@@ -771,7 +771,7 @@ def test_a_program_record_may_be_a_template_whose_rows_read_its_parameters():
         if isinstance(t, Token) and t.type == "SIGNATURE"
     ]
     assert sigs == [
-        ("def_restart", "hr(h,ad,sr)"),
+        ("def_restart", "hr(h,a,s)"),
         ("def_ctrl", "arp(a,b)"),
         ("def_pw", "pt(b)"),
         ("def_filter", "fl(c)"),
@@ -806,7 +806,7 @@ def test_a_program_record_may_be_a_template_whose_rows_read_its_parameters():
         "row_mode",
         "row_vol",
     }
-    assert code.programs(tree)["hr"] == ("restart", ("h", "ad", "sr"))
+    assert code.programs(tree)["hr"] == ("restart", ("h", "a", "s"))
     runs = [
         (n.data, t.type, str(t))
         for n in tree.iter_subtrees_topdown()
@@ -874,7 +874,7 @@ def test_the_definitions_are_top_level_sections_after_the_templates():
     rows = [s.data for r in tree.find_data("row") for s in r.children if isinstance(s, Tree)]
     assert rows == ["plays"]
     assert keys(first(tree, "def_phrase")) == ["p1", "phrase"]
-    undefined = PROGRAMS.replace("restart:\n hr(h,ad,sr):[{hold:h,gate:0,ad:ad,sr:sr},end]\n", "")
+    undefined = PROGRAMS.replace("restart:\n hr(h,a,s):[{hold:h,gate:0,ad:a,sr:s},end]\n", "")
     assert parse(undefined.replace("restart:hr(", "restart:rs("))
 
 

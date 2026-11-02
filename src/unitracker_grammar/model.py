@@ -6,14 +6,16 @@ from dataclasses import dataclass, field, fields
 from typing import NamedTuple
 
 from unitracker_grammar import code as _code
-from unitracker_grammar.cells import SONG_CELLS
+from unitracker_grammar.cells import CELLS, SONG_CELLS, TERM
 
 VERSION, VERSION_2_4, VERSION_2_5 = "2.3", "2.4", "2.5"
 NONE, HOLD, RESET, CONT, END = "none", "hold", "reset", "~", "end"
 KINDS = ("restart", "ins", "ctrl", "pw", "filter", "phrase", "section")
 LAYERED_KINDS = ("ctrl", "pw", "filter")
 _INT = re.compile(r"\d+")
-PARAM = re.compile(r"(?!(?:v|phi|n|nn|ne|none|hold|reset|(?:pw|[cfiprs])\d+)\b)[a-z][a-z0-9_]*")
+PARAM = re.compile(
+    rf"(?!(?:v|phi|n|nn|ne|none|hold|reset|{'|'.join(CELLS)}|(?:pw|[cfiprs])\d+)\b)[a-z][a-z0-9_]*"
+)
 _ROW_KEYS = (
     "wait hold ctrl mask gate note ad sr pw cut res route route_on route_off mode freq run vol env"
 ).split()
@@ -117,6 +119,14 @@ def _pairs(value) -> tuple:
     return tuple(value.items()) if isinstance(value, dict) else tuple(value)
 
 
+def _tempo(value) -> tuple:
+    """A tempo's entries: an int is the list of one, a list a tuple."""
+    value = (value,) if isinstance(value, int) else tuple(value)
+    if not value:
+        raise ValueError("tempo: a list of one entry or more")
+    return value
+
+
 def _tuple(value):
     return tuple(value) if isinstance(value, list) else value
 
@@ -205,7 +215,9 @@ class Event(_Node):
     steps: int | None = None
 
     def _normal(self):
-        _set(self, "commands", _ordered(self.commands, _CMD_KEYS))
+        commands = _ordered(self.commands, _CMD_KEYS)
+        timed = ("tempo", "vtempo")
+        _set(self, "commands", tuple((k, _tempo(v) if k in timed else v) for k, v in commands))
 
 
 @dataclass(frozen=True)
@@ -348,9 +360,10 @@ def _holds(pairs, layers: dict) -> tuple:
 class Header(_Node):  # pylint: disable=too-many-instance-attributes
     """The header lines, each None (``meta`` empty) where not written; ``meta`` holds each
     text as written, plain or quoted, ``clock`` is ``(cycles_per_tick, clock_hz)``, ``tempo``
-    an int or ``(a, b)``, ``slots`` and ``state`` are ``(cell, ...)`` pairs, ``layers``
-    ``(kind, names)`` pairs in LAYERED_KINDS order, ``holds`` ``(key, events)`` pairs (``key`` a
-    program kind or a layer's name, ``events`` as in a slot's ``hold``), ``regs`` the 25
+    the tuple of its entries (an int is the list of one), ``slots`` and ``state`` are
+    ``(cell, ...)`` pairs, ``layers`` ``(kind, names)`` pairs in LAYERED_KINDS order, ``holds``
+    ``(key, events)`` pairs (``key`` a program kind or a layer's name, ``events`` as in a slot's
+    ``hold``), ``regs`` the 25
     registers' values before tick 0, ``lag`` the output's calls of lag, ``calls``
     ``(frame, full)``: the calls of a frame and the repeating pattern of 0 and 1 for each call
     being full (None for every call full) and ``global_cells`` the cells the song owns
@@ -359,7 +372,7 @@ class Header(_Node):  # pylint: disable=too-many-instance-attributes
     meta: tuple = ()
     clock: tuple | None = None
     voices: int | None = None
-    tempo: int | tuple | None = None
+    tempo: tuple | None = None
     slots: tuple | None = None
     layers: tuple | None = None
     holds: tuple | None = None
@@ -380,6 +393,12 @@ class Header(_Node):  # pylint: disable=too-many-instance-attributes
                 _set(self, name, tuple((k, tuple(v)) for k, v in _pairs(value)))
         if self.layers is not None:
             _set(self, "layers", _ordered(self.layers, list(LAYERED_KINDS)))
+        if self.tempo is not None:
+            _set(self, "tempo", _tempo(self.tempo))
+        named = [s.name for _, slots in self.slots or () for s in slots]
+        named += [n for _, names in self.layers or () for n in names]
+        if TERM in named:
+            raise ValueError(f"{TERM} is the name of a cell's term, not of a slot or a layer")
         if self.clock is not None and len(self.clock) != 2:
             raise ValueError(f"clock {self.clock} is (cycles_per_tick, clock_hz)")
         if self.global_cells is not None:

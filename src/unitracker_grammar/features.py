@@ -4,7 +4,7 @@
 from dataclasses import fields, is_dataclass
 
 from unitracker_grammar import expr
-from unitracker_grammar.cells import LATER_CELLS, LATER_PHASES
+from unitracker_grammar.cells import LATER_CELLS, LATER_PHASES, TERM
 from unitracker_grammar.code import Call
 from unitracker_grammar.model import (
     HOLD,
@@ -17,6 +17,7 @@ from unitracker_grammar.model import (
     Env,
     Event,
     Expr,
+    Header,
     Instrument,
     Once,
     Row,
@@ -53,16 +54,31 @@ def _bound(key: str, value) -> bool:
     return isinstance(value, (Call, Code, Once, Def, Writes))
 
 
-def _pairs(node):
-    """The ``(key, value)`` pairs of a row, an instrument or an event that name cells format 2.5
-    can bind."""
+def _all(node):
+    """The ``(key, value)`` pairs of a row, an instrument or an event."""
     if isinstance(node, Row):
         return node.keys
     if isinstance(node, Event):
         return node.commands
     if isinstance(node, Instrument):
-        return [(k, v) for k, v in node.fields if base(k) in _FIELDS]
+        return node.fields
     return ()
+
+
+def _pairs(node):
+    """The ``(key, value)`` pairs of a row, an instrument or an event that name cells format 2.5
+    can bind."""
+    pairs = _all(node)
+    return [(k, v) for k, v in pairs if not isinstance(node, Instrument) or base(k) in _FIELDS]
+
+
+def _long_tempo(node) -> bool:
+    """Whether ``node`` is a tempo of more than two entries, a header's or an event's."""
+    if isinstance(node, Header):
+        return len(node.tempo or ()) > 2
+    return isinstance(node, Event) and any(
+        len(v) > 2 for k, v in node.commands if k in ("tempo", "vtempo")
+    )
 
 
 def _event_slot(node) -> bool:
@@ -76,11 +92,24 @@ def _later_expr(node) -> bool:
     return isinstance(node, Expr) and expr.later(node.text)
 
 
+def _later_node(node) -> bool:
+    """Whether one node of a document is a construct of format 2.5 inside a header, a row, an
+    instrument or an event."""
+    return (
+        _event_slot(node)
+        or isinstance(node, Env)
+        or _later_expr(node)
+        or _long_tempo(node)
+        or any(k.startswith(TERM + ".") for k, _ in _all(node))
+        or any(base(k) in LATER_CELLS and _bound(k, v) for k, v in _pairs(node))
+    )
+
+
 def uses(doc: Document) -> bool:
     """Whether ``doc`` has a construct of format 2.5: a ``calls`` or ``holds`` line, a global
     cell but the cutoff, a slots or state line or an order line naming a cell or phase 2.5 adds,
-    an env, a binding or stop of a cell 2.5 adds, or an expression with an operator, function or
-    comparison 2.5 adds."""
+    an env, a binding or stop of a cell 2.5 adds, a ``mask`` term, a tempo of more than two
+    entries, or an expression with an operator, function, cell name or comparison 2.5 adds."""
     head = doc.header
     if head.calls is not None or head.holds is not None:
         return True
@@ -88,9 +117,4 @@ def uses(doc: Document) -> bool:
         return True
     if {c for c, _ in (head.slots or ()) + (head.state or ())} & set(LATER_CELLS):
         return True
-    for node in _nodes(doc):
-        if _event_slot(node) or isinstance(node, Env) or _later_expr(node):
-            return True
-        if any(base(k) in LATER_CELLS and _bound(k, v) for k, v in _pairs(node)):
-            return True
-    return False
+    return any(_later_node(node) for node in _nodes(doc))
