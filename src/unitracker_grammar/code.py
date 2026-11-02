@@ -621,7 +621,9 @@ def check_document(tree: Tree) -> Tree:
 _PREFIXES = frozenset({"SLOT", *(f"CMD_{c.upper()}" for c in CELLS), "CMD_RUN"})
 _PREFIXED = re.compile(r" ?mask\.")
 _EXPRESSION = frozenset({"fexpr", "expr", "term", "factor"})
-_NOT_BINDINGS = frozenset({"once", "writes", "program", "use_ctrl", "use_pw", "use_filter"})
+_NOT_BINDINGS = frozenset(
+    "once writes program use_ctrl use_pw use_filter HOLD RESET CTRL PW FILTER".split()
+)
 
 
 def _key(link: Tree) -> tuple:
@@ -648,8 +650,8 @@ def _kind(value) -> str:
             break
         value = value.children[0]
     if isinstance(value, Token):
-        return {"INT": "int", "PARAM": "int", "NONE": "none", "CALL": "bind"}.get(
-            value.type, "other"
+        return {"INT": "int", "PARAM": "int", "NONE": "none"}.get(
+            value.type, "other" if value.type in _NOT_BINDINGS else "bind"
         )
     return "other" if value.data in _NOT_BINDINGS else "bind"
 
